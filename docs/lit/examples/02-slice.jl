@@ -125,6 +125,21 @@ function rf_maker2!(kappa, α_rad)
 end
 @assert rf_maker2!(1, α_rad)[1].α == rf1.α
 
+function rf_maker2(kappa, α_rad)
+    m = @which rf_slice(tRF_ms ; α_rad=kappa*α_rad, nlobe, slice_width, Δt_ms)
+    # @show m
+    # @show m.module
+    # @show m.file
+    # @show m.line
+
+    rf, rephasing = rf_slice(tRF_ms ; α_rad=kappa*α_rad, nlobe, slice_width, Δt_ms)
+    # @show rf.α
+    # @show rf.θ
+    # error("stop after show rf")
+    return rf, rephasing
+end
+@assert rf_maker2(1, α_rad)[1].α == rf1.α
+
 
 #=
 ## Timing diagram for bSSFP
@@ -262,16 +277,23 @@ _bssfp0(x, Δϕ_rad, α_rad) =
 
 #=
 Helper for bSSFP model with slice-selective RF pulse.
-- Here we must sum across spins the effect of each (Δϕ_rad, α_rad) pair.
+- Here we must sum across spins the effect of each `(Δϕ_rad, α_rad)` pair.
 - This version models flip-angle dependent slice profile effects.
 =#
-function _bssfp1(x, Δϕ_rad, α_rad, scale, rf_maker!, zpos)
-    rf, rephasing = rf_maker!(x[5], α_rad) # kappa
+function _bssfp1(x, Δϕ_rad, α_rad, scale, rf_maker, zpos)
+    rf, rephasing = rf_maker(x[5], α_rad) # kappa
     spins = make_spins(x[1:4]..., zpos) # todo: mutable Spin would avoid alloc
     return scale * sum(spins) do spin
          bssfp(spin, TR_ms, TE_ms, Δϕ_rad, (rephasing, rf, rephasing))
     end
 end
+
+# AMM adding, finite RF/no slice profile? (why underscore in front?)
+# function _bssfp1_finiteRF(x, Δϕ_rad, α_rad, rf_maker!)
+#     rf, rephasing = rf_maker!(x[5], α_rad) # kappa
+#     my_spin = Spin(x[1:4]...,)
+#     return bssfp(my_spin, TR_ms, TE_ms, Δϕ_rad, (rephasing, rf, rephasing))
+# end
 
 function signal_c0(x)
     _bssfp(Δϕ_rad, α_rad) = _bssfp0(x, Δϕ_rad, α_rad)
@@ -279,10 +301,15 @@ function signal_c0(x)
 end
 signal_ri0(x) = real_imag(vec(signal_c0(x)))
 
-function signal_c1(x, scale, rf_maker!, zpos)
-    _bssfp(Δϕ_rad, α_rad) = _bssfp1(x, Δϕ_rad, α_rad, scale, rf_maker!, zpos)
+function signal_c1(x, scale, rf_maker, zpos)
+    _bssfp(Δϕ_rad, α_rad) = _bssfp1(x, Δϕ_rad, α_rad, scale, rf_maker, zpos)
     return map(splat(_bssfp), design)
 end;
+
+# function signal_c1_finiteRF(x, rf_maker!)
+#     _bssfp(Δϕ_rad, α_rad) = _bssfp1_finiteRF(x, Δϕ_rad, α_rad, rf_maker!)
+#     return map(splat(_bssfp), design)
+# end;
 
 
 #=
@@ -290,8 +317,9 @@ Scale factor since excited slice occupies a small fraction of z FOV:
 =#
 zfov2 = maximum(zpos2) - minimum(zpos2)
 scale2 = zfov2 / slice_width / length(zpos2)
-args2 = (scale2, rf_maker2!, zpos2)
+args2 = (scale2, rf_maker2, zpos2)
 signal_ri2(x) = real_imag(vec(signal_c1(x, args2...)));
+# signal_ri2_finiteRF(x) = real_imag(vec(signal_c1_finiteRF(x, rf_maker2!)));
 
 
 #=
@@ -300,13 +328,17 @@ The effect is quite significant.
 =#
 
 yb = signal_ri2(x) # noiseless data account for slice-profile effects
+# yb_finiteRF = signal_ri2_finiteRF(x) # accounts for finite RF, not sp
 yb = reshape(yb, :, 2); yb = complex.(yb[:,1], yb[:,2]); # re-make complex!
+# ybf = reshape(yb_finiteRF, :, 2); ybf = complex.(ybf[:,1], ybf[:,2]); # re-make complex!
 snr_db = 40
 σ = snr2sigma(snr_db, yb)
+# σf = snr2sigma(snr_db, ybf)
 y2 = yb + 1σ * randn(ComplexF64, size(yb));
+# y2f = ybf + 1σf * randn(ComplexF64, size(ybf));
 #src @show 20*log10(norm(yb) / norm(y2 - yb))
 
-
+# add to here finite RF with no slice profile effects?
 #=
 ## Slice profile effects on bSSFP
 =#
@@ -317,7 +349,9 @@ function plot_bssfp(args, y)
      title = "SNR=$snr_db dB TR=$TR_ms TE=$TE_ms T1=$T1_ms T2=$T2_ms",
     )
     label = reshape(map(x -> "$(x)° noisy", α_degs), 1, :)
-    scatter!(Δϕ_rads, abs.(y); label)
+    # scatter!(Δϕ_rads, abs.(y); label)
+    ymat = reshape(y, length(Δϕ_rads), length(α_degs))
+    scatter!(Δϕ_rads, abs.(ymat); label)
     Δϕ_fine = range(-1, 1, 61) * π # phase-cycling factors for plot
     @time tmp0 = Base.Fix{1}(_bssfp0, x).(Δϕ_fine, α_rads')
     @time tmp1 = ((Δϕ, α) -> _bssfp1(x, Δϕ, α, args...)).(Δϕ_fine, α_rads')
@@ -329,7 +363,8 @@ function plot_bssfp(args, y)
     pmisa = plot( ; xaxis, widen = true, ylabel = "signal phase [rad]",
      title = "SNR=$snr_db dB TR=$TR_ms TE=$TE_ms T1=$T1_ms T2=$T2_ms",
     )
-    scatter!(Δϕ_rads, angle.(y); label)
+    # scatter!(Δϕ_rads, angle.(y); label)
+    scatter!(Δϕ_rads, angle.(ymat); label)
     plot!(Δϕ_fine, angle.(tmp1); label="$tRF_ms ms sinc RF", color)
     @assert angle.(tmp0[:,1]) ≈ angle.(tmp0[:,2]) ≈ angle.(tmp0[:,3]) # same!
     plot!(Δϕ_fine, angle.(tmp0[:,1]); label="0 ms RF", line=:dash, color=:black)
@@ -373,6 +408,15 @@ may be quite significant.
 round2(x) = round(x; sigdigits=3)
 mean2(x) = sum(x, dims=2)[:,1] / nrep
 std2(x) = sqrt.(sum(abs2, x .- mean2(x), dims=2)[:,1] / nrep)
+
+# error("pause here")
+
+
+crb0 = sqrt.(diag(crb(signal_ri0, x, σ)))
+crb02 = sqrt.(diag(crb(signal_ri2, x, σ)))
+
+# error("pause here")
+
 if !@isdefined(xr0) || false
     nrep = 100
     @time xr0 = stack([do_fit(signal_ri0, i, yb, σ) for i in 1:nrep])
@@ -380,107 +424,160 @@ if !@isdefined(xr0) || false
     std0 = std2(xr0)
 end
 
-crb2 = sqrt.(diag(crb(signal_ri0, x, σ)))
-tab2 = [ # estimation results table
- :param :value :μ0 :σ0 :σcrb;
- collect(keys(xt)) collect(xt) round2.([mean0 std0 crb2]);
-]
+# # data with finite RF, fit without I think
+# if !@isdefined(xr0f) || false
+#     nrep = 100
+#     @time xr0f = stack([do_fit(signal_ri0, i, ybf, σ) for i in 1:nrep])
+#     mean0f = mean2(xr0f)
+#     std0f = std2(xr0f)
+# end
 
+# AMM added, fit signal with the correct signal model
+# takes hours to run
+# add Threads.@threads 
 
-#=
-## 3D case
-
-Now use an SLR pulse to excite a slab
-that has fairly uniform profile
-across the thin center slice.
-=#
-slab_width = 0.6; # cm (6 mm slab)
-
-#=
-## SLR pulse design
-- Using `:st` (small tip) option relevant for flip < 90 degrees.
-- Using prephasing / rephasing gradient from sinc pulse.
-=#
-rtype3 = "SLR TBW=$(2nlobe)"
-slr = dzrf( ; n = length(rf1), tb = 2nlobe, ptype = :st, ftype = :ls)
-@assert slr ≈ real(slr)
-slr = real(slr)
-rf3_sinc, rephasing3 = rf_slice(tRF_ms ;
-    α_rad, nlobe, slice_width = slab_width, Δt_ms)
-rf3 = RF(α_rad * slr * b1_gauss(1, Δt_ms), Δt_ms, 0, rf3_sinc.grad)
-
-work3 = (; α_rad, rf = deepcopy(rf3), rf_α = deepcopy(rf3.α), rephasing = rephasing3)
-function rf_maker3!(kappa, α_rad)
-    copyto!(work3.rf.α, work3.rf_α * (kappa * α_rad / work3.α_rad))
-    return work3.rf, work3.rephasing
-end
-@assert rf_maker3!(1, α_rad)[1].α == rf3.α
-
-
-#=
-## Plot slab-select profile
-Using a large array of spins here:
-=#
-# z positions (cm) for 3D slab-select plot:
-zpos3_plot = range(-1, 1, 201) * slab_width
-spins = make_spins(Mz0, T1_ms, T2_ms, Δf_Hz, zpos3_plot)
-do_excite!(spins, rf3, rephasing3)
-pp3 = plot_profile(spins, zpos3_plot, slice_width, rtype3)
-
-#
-prompt()
-
-
-#=
-## Zoom into the center "slice" of interest
-The profile is quite flat,
-though again the value is a bit low
-due to T2 decay effects.
-=#
-zpos_slice = range(-0.05, 0.05, 21) # z positions (cm) # 1mm slice in a big slab
-spins = make_spins(Mz0, T1_ms, T2_ms, Δf_Hz, zpos_slice)
-do_excite!(spins, rf3, rephasing3)
-pp4 = plot_profile(spins, zpos_slice, slice_width, rtype3)
-
-
-#=
-## Examine bSSFP signal for 3D case
-Here there is better agreement with `InstantaneousRF` model,
-though still some small scaling difference.
-=#
-
-#=
-Scale factor since excited slice occupies a small fraction of z FOV:
-=#
-scale3 = 1 / length(zpos_slice)
-args3 = (scale3, rf_maker3!, zpos_slice)
-signal_ri3(x) = real_imag(vec(signal_c1(x, args3...)))
-
-yb3 = signal_ri3(x) # noiseless data account for slice-profile effects
-yb3 = reshape(yb3, :, 2); yb3 = complex.(yb3[:,1], yb3[:,2]); # re-make complex!
-σ3 = snr2sigma(snr_db, yb3)
-y3 = yb3 + 1σ3 * randn(ComplexF64, size(yb3));
-#src @show 20*log10(norm(yb3) / norm(y3 - yb3))
-
-pb3 = plot_bssfp(args3, y3)
-
-#
-prompt()
-
-
-#=
-## Fit InstantaneousRF model to 3D data
-The T1 parameter estimates are perhaps somewhat better?
-=#
-
-if !@isdefined(xr3)
+if !@isdefined(xr02) || false
     nrep = 100
-    @time xr03 = stack([do_fit(signal_ri0, i, yb3, σ3) for i in 1:nrep])
-    mean03 = mean2(xr03)
-    std03 = std2(xr03)
+    @time xr02 = stack([do_fit(signal_ri2, i, yb, σ) for i in 1:nrep])
+    mean02 = mean2(xr02)
+    std02 = std2(xr02)
 end
 
-tab3 = [ # estimation results table
- :param :value :μ0 :σ0 :σcrb;
- collect(keys(xt)) collect(xt) round2.([mean03 std03 crb2]);
+println("made it here")
+
+if !@isdefined(xr02)
+    nrep = 100
+
+    xr02_list = Vector{Any}(undef, nrep)
+
+    @time begin
+        Threads.@threads for i in 1:nrep
+            xr02_list[i] = do_fit(signal_ri2, i, yb, σ)
+        end
+
+        xr02 = stack(xr02_list)
+    end
+
+    mean02 = mean2(xr02)
+    std02 = std2(xr02)
+end
+
+
+
+
+tab2_0 = [ # estimation results table
+ :param :value :μ0 :σ0 :σcrb0;
+ collect(keys(xt)) collect(xt) round2.([mean0 std0 crb0]);
 ]
+
+# data with finite RF, fit without
+# tab2_0f = [ # estimation results table
+#  :param :value :μ0 :σ0 :σcrb;
+#  collect(keys(xt)) collect(xt) round2.([mean0f std0f crb0]);
+# ]
+
+
+tab2_2 = [ # estimation results table
+ :param :value :μ2 :σ2 :σcrb2;
+ collect(keys(xt)) collect(xt) round2.([mean02 std02 crb02]);
+]
+
+
+###########################################################################
+# #=
+# ## 3D case
+
+# Now use an SLR pulse to excite a slab
+# that has fairly uniform profile
+# across the thin center slice.
+# =#
+# slab_width = 0.6; # cm (6 mm slab)
+
+# #=
+# ## SLR pulse design
+# - Using `:st` (small tip) option relevant for flip < 90 degrees.
+# - Using prephasing / rephasing gradient from sinc pulse.
+# =#
+# rtype3 = "SLR TBW=$(2nlobe)"
+# slr = dzrf( ; n = length(rf1), tb = 2nlobe, ptype = :st, ftype = :ls)
+# @assert slr ≈ real(slr)
+# slr = real(slr)
+# rf3_sinc, rephasing3 = rf_slice(tRF_ms ;
+#     α_rad, nlobe, slice_width = slab_width, Δt_ms)
+# rf3 = RF(α_rad * slr * b1_gauss(1, Δt_ms), Δt_ms, 0, rf3_sinc.grad)
+
+# work3 = (; α_rad, rf = deepcopy(rf3), rf_α = deepcopy(rf3.α), rephasing = rephasing3)
+# function rf_maker3!(kappa, α_rad)
+#     copyto!(work3.rf.α, work3.rf_α * (kappa * α_rad / work3.α_rad))
+#     return work3.rf, work3.rephasing
+# end
+# @assert rf_maker3!(1, α_rad)[1].α == rf3.α
+
+
+# #=
+# ## Plot slab-select profile
+# Using a large array of spins here:
+# =#
+# # z positions (cm) for 3D slab-select plot:
+# zpos3_plot = range(-1, 1, 201) * slab_width
+# spins = make_spins(Mz0, T1_ms, T2_ms, Δf_Hz, zpos3_plot)
+# do_excite!(spins, rf3, rephasing3)
+# pp3 = plot_profile(spins, zpos3_plot, slice_width, rtype3)
+
+# #
+# prompt()
+
+
+# #=
+# ## Zoom into the center "slice" of interest
+# The profile is quite flat,
+# though again the value is a bit low
+# due to T2 decay effects.
+# =#
+# zpos_slice = range(-0.05, 0.05, 21) # z positions (cm) # 1mm slice in a big slab
+# spins = make_spins(Mz0, T1_ms, T2_ms, Δf_Hz, zpos_slice)
+# do_excite!(spins, rf3, rephasing3)
+# pp4 = plot_profile(spins, zpos_slice, slice_width, rtype3)
+
+
+# #=
+# ## Examine bSSFP signal for 3D case
+# Here there is better agreement with `InstantaneousRF` model,
+# though still some small scaling difference.
+# =#
+
+# #=
+# Scale factor since excited slice occupies a small fraction of z FOV:
+# =#
+# scale3 = 1 / length(zpos_slice)
+# args3 = (scale3, rf_maker3!, zpos_slice)
+# signal_ri3(x) = real_imag(vec(signal_c1(x, args3...)))
+
+# yb3 = signal_ri3(x) # noiseless data account for slice-profile effects
+# yb3 = reshape(yb3, :, 2); yb3 = complex.(yb3[:,1], yb3[:,2]); # re-make complex!
+# σ3 = snr2sigma(snr_db, yb3)
+# y3 = yb3 + 1σ3 * randn(ComplexF64, size(yb3));
+# #src @show 20*log10(norm(yb3) / norm(y3 - yb3))
+
+# pb3 = plot_bssfp(args3, y3)
+
+# #
+# prompt()
+
+
+# #=
+# ## Fit InstantaneousRF model to 3D data
+# The T1 parameter estimates are perhaps somewhat better?
+# =#
+
+# if !@isdefined(xr3)
+#     nrep = 100
+#     @time xr03 = stack([do_fit(signal_ri0, i, yb3, σ3) for i in 1:nrep])
+#     mean03 = mean2(xr03)
+#     std03 = std2(xr03)
+# end
+
+# tab3 = [ # estimation results table
+#  :param :value :μ0 :σ0 :σcrb;
+#  collect(keys(xt)) collect(xt) round2.([mean03 std03 crb2]);
+# ]
