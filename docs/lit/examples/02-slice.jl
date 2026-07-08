@@ -129,15 +129,7 @@ end
 
 function rf_maker2(kappa, α_rad)
     m = @which rf_slice(tRF_ms ; α_rad=kappa*α_rad, nlobe, slice_width, Δt_ms)
-    # @show m
-    # @show m.module
-    # @show m.file
-    # @show m.line
-
     rf, rephasing = rf_slice(tRF_ms ; α_rad=kappa*α_rad, nlobe, slice_width, Δt_ms)
-    # @show rf.α
-    # @show rf.θ
-    # error("stop after show rf")
     return rf, rephasing
 end
 @assert rf_maker2(1, α_rad)[1].α == rf1.α
@@ -290,29 +282,18 @@ function _bssfp1(x, Δϕ_rad, α_rad, scale, rf_maker, zpos)
     end
 end
 
-# AMM adding, finite RF/no slice profile? (why underscore in front?)
-# function _bssfp1_finiteRF(x, Δϕ_rad, α_rad, rf_maker!)
-#     rf, rephasing = rf_maker!(x[5], α_rad) # kappa
-#     my_spin = Spin(x[1:4]...,)
-#     return bssfp(my_spin, TR_ms, TE_ms, Δϕ_rad, (rephasing, rf, rephasing))
-# end
-
+# signal model for `InstantaneousRF` bSSFP signal model
 function signal_c0(x)
     _bssfp(Δϕ_rad, α_rad) = _bssfp0(x, Δϕ_rad, α_rad)
     return map(splat(_bssfp), design)
 end
 signal_ri0(x) = real_imag(vec(signal_c0(x)))
 
+# signal model with slice-selective RF pulse
 function signal_c1(x, scale, rf_maker, zpos)
     _bssfp(Δϕ_rad, α_rad) = _bssfp1(x, Δϕ_rad, α_rad, scale, rf_maker, zpos)
     return map(splat(_bssfp), design)
 end;
-
-# function signal_c1_finiteRF(x, rf_maker!)
-#     _bssfp(Δϕ_rad, α_rad) = _bssfp1_finiteRF(x, Δϕ_rad, α_rad, rf_maker!)
-#     return map(splat(_bssfp), design)
-# end;
-
 
 #=
 Scale factor since excited slice occupies a small fraction of z FOV:
@@ -321,7 +302,6 @@ zfov2 = maximum(zpos2) - minimum(zpos2)
 scale2 = zfov2 / slice_width / length(zpos2)
 args2 = (scale2, rf_maker2, zpos2)
 signal_ri2(x) = real_imag(vec(signal_c1(x, args2...)));
-# signal_ri2_finiteRF(x) = real_imag(vec(signal_c1_finiteRF(x, rf_maker2!)));
 
 
 #=
@@ -340,7 +320,6 @@ y2 = yb + 1σ * randn(ComplexF64, size(yb));
 # y2f = ybf + 1σf * randn(ComplexF64, size(ybf));
 #src @show 20*log10(norm(yb) / norm(y2 - yb))
 
-# add to here finite RF with no slice profile effects?
 #=
 ## Slice profile effects on bSSFP
 =#
@@ -411,13 +390,10 @@ round2(x) = round(x; sigdigits=3)
 mean2(x) = sum(x, dims=2)[:,1] / nrep
 std2(x) = sqrt.(sum(abs2, x .- mean2(x), dims=2)[:,1] / nrep)
 
-# error("pause here")
-
 
 crb0 = sqrt.(diag(crb(signal_ri0, x, σ)))
 crb02 = sqrt.(diag(crb(signal_ri2, x, σ)))
 
-# error("pause here")
 
 if !@isdefined(xr0) || false
     nrep = 100
@@ -426,44 +402,35 @@ if !@isdefined(xr0) || false
     std0 = std2(xr0)
 end
 
-# # data with finite RF, fit without I think
-# if !@isdefined(xr0f) || false
+# fit signal with the correct signal model
+# takes a long time (hours) to run
+# version without parallel processing
+# if !@isdefined(xr02) || false
 #     nrep = 100
-#     @time xr0f = stack([do_fit(signal_ri0, i, ybf, σ) for i in 1:nrep])
-#     mean0f = mean2(xr0f)
-#     std0f = std2(xr0f)
+#     @time xr02 = stack([do_fit(signal_ri2, i, yb, σ) for i in 1:nrep])
+#     mean02 = mean2(xr02)
+#     std02 = std2(xr02)
 # end
-
-# AMM added, fit signal with the correct signal model
-# takes hours to run
-# add Threads.@threads 
-
-if !@isdefined(xr02) || false
-    nrep = 100
-    @time xr02 = stack([do_fit(signal_ri2, i, yb, σ) for i in 1:nrep])
-    mean02 = mean2(xr02)
-    std02 = std2(xr02)
-end
 
 println("made it here")
 
+# version with parallel processing
 if !@isdefined(xr02)
     nrep = 100
-
     xr02_list = Vector{Any}(undef, nrep)
-
     @time begin
         Threads.@threads for i in 1:nrep
             xr02_list[i] = do_fit(signal_ri2, i, yb, σ)
+            @show i
         end
-
         xr02 = stack(xr02_list)
     end
-
     mean02 = mean2(xr02)
     std02 = std2(xr02)
 end
 
+# save_path_full = "/home/amurguia/Documents/mwi-data/jeff_demo/fit_noisy.jld"
+# JLD.@save save_path_full xr0 xr02
 
 
 
@@ -549,6 +516,9 @@ function plot_bssfp_finiterf_sp_data_fits()
 end
 
 plot_bssfp_finiterf_sp_data_fits()
+
+#
+prompt()
 
 ###########################################################################
 # #=
