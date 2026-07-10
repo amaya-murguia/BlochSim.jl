@@ -408,8 +408,6 @@ end
 #     std02 = std2(xr1)
 # end
 
-println("made it here")
-
 # version with parallel processing
 if !@isdefined(xr1)
     nrep = 100
