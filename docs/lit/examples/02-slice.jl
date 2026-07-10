@@ -58,6 +58,7 @@ using Plots: default, gui
 using Plots: plot, plot!, scatter!, scatter3d!, text
 using Random: seed!
 using Measures
+using JLD
 
 default(titlefontsize = 10, markerstrokecolor = :auto, label="", linewidth = 2)
 seed!(0);
@@ -301,7 +302,7 @@ Scale factor since excited slice occupies a small fraction of z FOV:
 zfov2 = maximum(zpos2) - minimum(zpos2)
 scale2 = zfov2 / slice_width / length(zpos2)
 args2 = (scale2, rf_maker2, zpos2)
-signal_ri2(x) = real_imag(vec(signal_c1(x, args2...)));
+signal_ri1(x) = real_imag(vec(signal_c1(x, args2...)));
 
 
 #=
@@ -309,16 +310,12 @@ signal_ri2(x) = real_imag(vec(signal_c1(x, args2...)));
 The effect is quite significant.
 =#
 
-yb = signal_ri2(x) # noiseless data account for slice-profile effects
-# yb_finiteRF = signal_ri2_finiteRF(x) # accounts for finite RF, not sp
+yb = signal_ri1(x) # noiseless data account for slice-profile effects
 yb = reshape(yb, :, 2); yb = complex.(yb[:,1], yb[:,2]); # re-make complex!
-# ybf = reshape(yb_finiteRF, :, 2); ybf = complex.(ybf[:,1], ybf[:,2]); # re-make complex!
-snr_db = 40
+snr_db = 33.6 #40
 σ = snr2sigma(snr_db, yb)
-# σf = snr2sigma(snr_db, ybf)
-y2 = yb + 1σ * randn(ComplexF64, size(yb));
-# y2f = ybf + 1σf * randn(ComplexF64, size(ybf));
-#src @show 20*log10(norm(yb) / norm(y2 - yb))
+y1 = yb + 1σ * randn(ComplexF64, size(yb));
+#src @show 20*log10(norm(yb) / norm(y1 - yb))
 
 #=
 ## Slice profile effects on bSSFP
@@ -332,7 +329,7 @@ function plot_bssfp(args, y)
     label = reshape(map(x -> "$(x)° noisy", α_degs), 1, :)
     # scatter!(Δϕ_rads, abs.(y); label)
     ymat = reshape(y, length(Δϕ_rads), length(α_degs))
-    scatter!(Δϕ_rads, abs.(ymat); label)
+    # scatter!(Δϕ_rads, abs.(ymat); label)
     Δϕ_fine = range(-1, 1, 61) * π # phase-cycling factors for plot
     @time tmp0 = Base.Fix{1}(_bssfp0, x).(Δϕ_fine, α_rads')
     @time tmp1 = ((Δϕ, α) -> _bssfp1(x, Δϕ, α, args...)).(Δϕ_fine, α_rads')
@@ -345,18 +342,17 @@ function plot_bssfp(args, y)
      title = "SNR=$snr_db dB TR=$TR_ms TE=$TE_ms T1=$T1_ms T2=$T2_ms",
     )
     # scatter!(Δϕ_rads, angle.(y); label)
-    scatter!(Δϕ_rads, angle.(ymat); label)
+    # scatter!(Δϕ_rads, angle.(ymat); label)
     plot!(Δϕ_fine, angle.(tmp1); label="$tRF_ms ms sinc RF", color)
     @assert angle.(tmp0[:,1]) ≈ angle.(tmp0[:,2]) ≈ angle.(tmp0[:,3]) # same!
     plot!(Δϕ_fine, angle.(tmp0[:,1]); label="0 ms RF", line=:dash, color=:black)
 
     return plot(pmism, pmisa, layout=(2,1), size=(600, 800))
 end
-pb2 = plot_bssfp(args2, y2)
+pb1 = plot_bssfp(args2, y1)
 
 #
 prompt()
-
 
 #=
 ## Model fitting
@@ -392,7 +388,7 @@ std2(x) = sqrt.(sum(abs2, x .- mean2(x), dims=2)[:,1] / nrep)
 
 
 crb0 = sqrt.(diag(crb(signal_ri0, x, σ)))
-crb02 = sqrt.(diag(crb(signal_ri2, x, σ)))
+crb1 = sqrt.(diag(crb(signal_ri1, x, σ)))
 
 
 if !@isdefined(xr0) || false
@@ -405,34 +401,33 @@ end
 # fit signal with the correct signal model
 # takes a long time (hours) to run
 # version without parallel processing
-# if !@isdefined(xr02) || false
+# if !@isdefined(xr1) || false
 #     nrep = 100
-#     @time xr02 = stack([do_fit(signal_ri2, i, yb, σ) for i in 1:nrep])
-#     mean02 = mean2(xr02)
-#     std02 = std2(xr02)
+#     @time xr1 = stack([do_fit(signal_ri1, i, yb, σ) for i in 1:nrep])
+#     mean02 = mean2(xr1)
+#     std02 = std2(xr1)
 # end
 
 println("made it here")
 
 # version with parallel processing
-if !@isdefined(xr02)
+if !@isdefined(xr1)
     nrep = 100
-    xr02_list = Vector{Any}(undef, nrep)
+    xr1_list = Vector{Any}(undef, nrep)
     @time begin
         Threads.@threads for i in 1:nrep
-            xr02_list[i] = do_fit(signal_ri2, i, yb, σ)
+            xr1_list[i] = do_fit(signal_ri1, i, yb, σ)
             @show i
         end
-        xr02 = stack(xr02_list)
+        xr1 = stack(xr1_list)
     end
-    mean02 = mean2(xr02)
-    std02 = std2(xr02)
+    mean1 = mean2(xr1)
+    std1 = std2(xr1)
 end
 
-# save_path_full = "/home/amurguia/Documents/mwi-data/jeff_demo/fit_noisy.jld"
-# JLD.@save save_path_full xr0 xr02
-
-
+# remove this later (and the using JLD statement above)
+# save_path_full = "/home/amurguia/Documents/mwi-data/jeff_demo/fit_noisy_33.6dB.jld"
+# JLD.@save save_path_full xr0 xr1
 
 tab2_0 = [ # estimation results table
  :param :value :μ0 :σ0 :σcrb0;
@@ -446,9 +441,9 @@ tab2_0 = [ # estimation results table
 # ]
 
 
-tab2_2 = [ # estimation results table
- :param :value :μ2 :σ2 :σcrb2;
- collect(keys(xt)) collect(xt) round2.([mean02 std02 crb02]);
+tab2_1 = [ # estimation results table
+ :param :value :μ1 :σ1 :σcrb1;
+ collect(keys(xt)) collect(xt) round2.([mean1 std1 crb1]);
 ]
 
 # make a plot
@@ -462,7 +457,7 @@ function plot_bssfp_finiterf_sp_data_fits()
     Δϕ_fine = range(-1, 1, 61) * π  # finer phase-cycling factors for plot
 
     # raw (simulated) data
-    y2mat = reshape(y2, num_PCFs, num_flips)
+    y1mat = reshape(y1, num_PCFs, num_flips)
     label_raw = reshape(map(x -> "$(x)° noisy simulated data", α_degs), 1, :)
 
     # fit with model mismatch (inst RF)
@@ -473,36 +468,36 @@ function plot_bssfp_finiterf_sp_data_fits()
 
     # fit without model mismatch (finite RF/slice profile effects)
     # also same labels as above
-    signal_c2_fit_complex = signal_c1(xr02, args2...)
-    f = (Δϕ, α) -> _bssfp1(xr02, Δϕ, α, args2...); signal_c2_fit_complex_fine = f.(Δϕ_fine, α_rads')
+    signal_c1_fit_complex = signal_c1(xr1, args2...)
+    f = (Δϕ, α) -> _bssfp1(xr1, Δϕ, α, args2...); signal_c1_fit_complex_fine = f.(Δϕ_fine, α_rads')
 
     ### magnitude (inst)
     pmism_inst = plot( ; xaxis, ylabel = "Signal Magnitude",widen = true,
      title = "(a) Simulated Data with SP Effects: Fit with Inst RF", legend=:none)
-    scatter!(Δϕ_rads, abs.(y2mat); label=label_raw, markersize=3, color) # raw simulated data
-    scatter!(Δϕ_rads, abs.(signal_c0_fit_complex); label=label_fit_c0, markershape=:x,markersize=3,
+    scatter!(Δϕ_rads, abs.(y1mat); label=label_raw, markersize=3, color) # raw simulated data
+    scatter!(Δϕ_rads, abs.(signal_c0_fit_complex); label=label_fit, markershape=:x,markersize=3,
      markerstrokewidth=1, color) # fitted points
-    plot!(Δϕ_fine, abs.(signal_c0_fit_complex_fine); label=label_fit_c0_fine, color) # finer fit
+    plot!(Δϕ_fine, abs.(signal_c0_fit_complex_fine); label=label_fit_fine, color) # finer fit
 
     ### phase (inst) (fairly small effect of slice-selective excitation)
     pmisp_inst = plot( ; xaxis, widen = true, ylabel = "Signal Phase (rad)",legend=:none)
-    scatter!(Δϕ_rads, angle.(y2mat); label=label_raw, markersize=3, color)
-    scatter!(Δϕ_rads, angle.(signal_c0_fit_complex); label=label_fit_c0, markershape=:x,markersize=3, markerstrokewidth=1, color)
-    plot!(Δϕ_fine, angle.(signal_c0_fit_complex_fine); label=label_fit_c0_fine, color)
+    scatter!(Δϕ_rads, angle.(y1mat); label=label_raw, markersize=3, color)
+    scatter!(Δϕ_rads, angle.(signal_c0_fit_complex); label=label_fit, markershape=:x,markersize=3, markerstrokewidth=1, color)
+    plot!(Δϕ_fine, angle.(signal_c0_fit_complex_fine); label=label_fit_fine, color)
 
     ### magnitude (finite RF/SP effects)
     pmism_sp = plot( ; xaxis, ylabel = "Signal Magnitude",widen = true,
      title = "(b) Simulated Data with SP Effects: Fit with SP Effects", legend=:none)
-    scatter!(Δϕ_rads, abs.(y2mat); label=label_raw, markersize=3, color) # raw simulated data
-    scatter!(Δϕ_rads, abs.(signal_c2_fit_complex); label=label_fit_c0, markershape=:x,markersize=3,
+    scatter!(Δϕ_rads, abs.(y1mat); label=label_raw, markersize=3, color) # raw simulated data
+    scatter!(Δϕ_rads, abs.(signal_c1_fit_complex); label=label_fit, markershape=:x,markersize=3,
      markerstrokewidth=1, color) # fitted points
-    plot!(Δϕ_fine, abs.(signal_c2_fit_complex_fine); label=label_fit_c0_fine, color) # finer fit
+    plot!(Δϕ_fine, abs.(signal_c1_fit_complex_fine); label=label_fit_fine, color) # finer fit
 
     ### phase (finite RF/SP effects) (fairly small effect of slice-selective excitation)
     pmisp_sp = plot( ; xaxis, widen = true, ylabel = "Signal Phase (rad)",legend=:bottomright)
-    scatter!(Δϕ_rads, angle.(y2mat); label=label_raw, markersize=3, color)
-    scatter!(Δϕ_rads, angle.(signal_c2_fit_complex); label=label_fit_c0, markershape=:x,markersize=3, markerstrokewidth=1, color)
-    plot!(Δϕ_fine, angle.(signal_c2_fit_complex_fine); label=label_fit_c0_fine, color)
+    scatter!(Δϕ_rads, angle.(y1mat); label=label_raw, markersize=3, color)
+    scatter!(Δϕ_rads, angle.(signal_c1_fit_complex); label=label_fit, markershape=:x,markersize=3, markerstrokewidth=1, color)
+    plot!(Δϕ_fine, angle.(signal_c1_fit_complex_fine); label=label_fit_fine, color)
 
     # put all the plots on 1 grid
     plot(pmism_inst, pmism_sp, pmisp_inst, pmisp_sp, 
@@ -521,100 +516,100 @@ plot_bssfp_finiterf_sp_data_fits()
 prompt()
 
 ###########################################################################
-# #=
-# ## 3D case
+#=
+## 3D case
 
-# Now use an SLR pulse to excite a slab
-# that has fairly uniform profile
-# across the thin center slice.
-# =#
-# slab_width = 0.6; # cm (6 mm slab)
+Now use an SLR pulse to excite a slab
+that has fairly uniform profile
+across the thin center slice.
+=#
+slab_width = 0.6; # cm (6 mm slab)
 
-# #=
-# ## SLR pulse design
-# - Using `:st` (small tip) option relevant for flip < 90 degrees.
-# - Using prephasing / rephasing gradient from sinc pulse.
-# =#
-# rtype3 = "SLR TBW=$(2nlobe)"
-# slr = dzrf( ; n = length(rf1), tb = 2nlobe, ptype = :st, ftype = :ls)
-# @assert slr ≈ real(slr)
-# slr = real(slr)
-# rf3_sinc, rephasing3 = rf_slice(tRF_ms ;
-#     α_rad, nlobe, slice_width = slab_width, Δt_ms)
-# rf3 = RF(α_rad * slr * b1_gauss(1, Δt_ms), Δt_ms, 0, rf3_sinc.grad)
+#=
+## SLR pulse design
+- Using `:st` (small tip) option relevant for flip < 90 degrees.
+- Using prephasing / rephasing gradient from sinc pulse.
+=#
+rtype3 = "SLR TBW=$(2nlobe)"
+slr = dzrf( ; n = length(rf1), tb = 2nlobe, ptype = :st, ftype = :ls)
+@assert slr ≈ real(slr)
+slr = real(slr)
+rf3_sinc, rephasing3 = rf_slice(tRF_ms ;
+    α_rad, nlobe, slice_width = slab_width, Δt_ms)
+rf3 = RF(α_rad * slr * b1_gauss(1, Δt_ms), Δt_ms, 0, rf3_sinc.grad)
 
-# work3 = (; α_rad, rf = deepcopy(rf3), rf_α = deepcopy(rf3.α), rephasing = rephasing3)
-# function rf_maker3!(kappa, α_rad)
-#     copyto!(work3.rf.α, work3.rf_α * (kappa * α_rad / work3.α_rad))
-#     return work3.rf, work3.rephasing
-# end
-# @assert rf_maker3!(1, α_rad)[1].α == rf3.α
-
-
-# #=
-# ## Plot slab-select profile
-# Using a large array of spins here:
-# =#
-# # z positions (cm) for 3D slab-select plot:
-# zpos3_plot = range(-1, 1, 201) * slab_width
-# spins = make_spins(Mz0, T1_ms, T2_ms, Δf_Hz, zpos3_plot)
-# do_excite!(spins, rf3, rephasing3)
-# pp3 = plot_profile(spins, zpos3_plot, slice_width, rtype3)
-
-# #
-# prompt()
+work3 = (; α_rad, rf = deepcopy(rf3), rf_α = deepcopy(rf3.α), rephasing = rephasing3)
+function rf_maker3!(kappa, α_rad)
+    copyto!(work3.rf.α, work3.rf_α * (kappa * α_rad / work3.α_rad))
+    return work3.rf, work3.rephasing
+end
+@assert rf_maker3!(1, α_rad)[1].α == rf3.α
 
 
-# #=
-# ## Zoom into the center "slice" of interest
-# The profile is quite flat,
-# though again the value is a bit low
-# due to T2 decay effects.
-# =#
-# zpos_slice = range(-0.05, 0.05, 21) # z positions (cm) # 1mm slice in a big slab
-# spins = make_spins(Mz0, T1_ms, T2_ms, Δf_Hz, zpos_slice)
-# do_excite!(spins, rf3, rephasing3)
-# pp4 = plot_profile(spins, zpos_slice, slice_width, rtype3)
+#=
+## Plot slab-select profile
+Using a large array of spins here:
+=#
+# z positions (cm) for 3D slab-select plot:
+zpos3_plot = range(-1, 1, 201) * slab_width
+spins = make_spins(Mz0, T1_ms, T2_ms, Δf_Hz, zpos3_plot)
+do_excite!(spins, rf3, rephasing3)
+pp3 = plot_profile(spins, zpos3_plot, slice_width, rtype3)
+
+#
+prompt()
 
 
-# #=
-# ## Examine bSSFP signal for 3D case
-# Here there is better agreement with `InstantaneousRF` model,
-# though still some small scaling difference.
-# =#
-
-# #=
-# Scale factor since excited slice occupies a small fraction of z FOV:
-# =#
-# scale3 = 1 / length(zpos_slice)
-# args3 = (scale3, rf_maker3!, zpos_slice)
-# signal_ri3(x) = real_imag(vec(signal_c1(x, args3...)))
-
-# yb3 = signal_ri3(x) # noiseless data account for slice-profile effects
-# yb3 = reshape(yb3, :, 2); yb3 = complex.(yb3[:,1], yb3[:,2]); # re-make complex!
-# σ3 = snr2sigma(snr_db, yb3)
-# y3 = yb3 + 1σ3 * randn(ComplexF64, size(yb3));
-# #src @show 20*log10(norm(yb3) / norm(y3 - yb3))
-
-# pb3 = plot_bssfp(args3, y3)
-
-# #
-# prompt()
+#=
+## Zoom into the center "slice" of interest
+The profile is quite flat,
+though again the value is a bit low
+due to T2 decay effects.
+=#
+zpos_slice = range(-0.05, 0.05, 21) # z positions (cm) # 1mm slice in a big slab
+spins = make_spins(Mz0, T1_ms, T2_ms, Δf_Hz, zpos_slice)
+do_excite!(spins, rf3, rephasing3)
+pp4 = plot_profile(spins, zpos_slice, slice_width, rtype3)
 
 
-# #=
-# ## Fit InstantaneousRF model to 3D data
-# The T1 parameter estimates are perhaps somewhat better?
-# =#
+#=
+## Examine bSSFP signal for 3D case
+Here there is better agreement with `InstantaneousRF` model,
+though still some small scaling difference.
+=#
 
-# if !@isdefined(xr3)
-#     nrep = 100
-#     @time xr03 = stack([do_fit(signal_ri0, i, yb3, σ3) for i in 1:nrep])
-#     mean03 = mean2(xr03)
-#     std03 = std2(xr03)
-# end
+#=
+Scale factor since excited slice occupies a small fraction of z FOV:
+=#
+scale3 = 1 / length(zpos_slice)
+args3 = (scale3, rf_maker3!, zpos_slice)
+signal_ri3(x) = real_imag(vec(signal_c1(x, args3...)))
 
-# tab3 = [ # estimation results table
-#  :param :value :μ0 :σ0 :σcrb;
-#  collect(keys(xt)) collect(xt) round2.([mean03 std03 crb2]);
-# ]
+yb3 = signal_ri3(x) # noiseless data account for slice-profile effects
+yb3 = reshape(yb3, :, 2); yb3 = complex.(yb3[:,1], yb3[:,2]); # re-make complex!
+σ3 = snr2sigma(snr_db, yb3)
+y3 = yb3 + 1σ3 * randn(ComplexF64, size(yb3));
+#src @show 20*log10(norm(yb3) / norm(y3 - yb3))
+
+pb3 = plot_bssfp(args3, y3)
+
+#
+prompt()
+
+
+#=
+## Fit InstantaneousRF model to 3D data
+The T1 parameter estimates are perhaps somewhat better?
+=#
+
+if !@isdefined(xr3)
+    nrep = 100
+    @time xr03 = stack([do_fit(signal_ri0, i, yb3, σ3) for i in 1:nrep])
+    mean03 = mean2(xr03)
+    std03 = std2(xr03)
+end
+
+tab3 = [ # estimation results table
+ :param :value :μ0 :σ0 :σcrb;
+ collect(keys(xt)) collect(xt) round2.([mean03 std03 crb1]);
+]
