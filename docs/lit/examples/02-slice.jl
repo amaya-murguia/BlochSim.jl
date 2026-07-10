@@ -282,15 +282,13 @@ function _bssfp1(x, Δϕ_rad, α_rad, scale, rf_maker, zpos)
     end
 end
 
-# signal model for `InstantaneousRF` bSSFP signal model
-function signal_c0(x)
+function signal_c0(x) # signal model for `InstantaneousRF` bSSFP signal model
     _bssfp(Δϕ_rad, α_rad) = _bssfp0(x, Δϕ_rad, α_rad)
     return map(splat(_bssfp), design)
 end
 signal_ri0(x) = real_imag(vec(signal_c0(x)))
 
-# signal model with slice-selective RF pulse
-function signal_c1(x, scale, rf_maker, zpos)
+function signal_c1(x, scale, rf_maker, zpos) # signal model with slice-selective RF pulse
     _bssfp(Δϕ_rad, α_rad) = _bssfp1(x, Δϕ_rad, α_rad, scale, rf_maker, zpos)
     return map(splat(_bssfp), design)
 end;
