@@ -57,7 +57,7 @@ using MRIPulses: dzrf
 using Plots: default, gui
 using Plots: plot, plot!, scatter!, scatter3d!, text
 using Random: seed!
-using Measures
+using Measures: mm
 
 default(titlefontsize = 10, markerstrokecolor = :auto, label="", linewidth = 2)
 seed!(0);
