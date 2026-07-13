@@ -128,7 +128,6 @@ end
 @assert rf_maker2!(1, α_rad)[1].α == rf1.α
 
 function rf_maker2(kappa, α_rad)
-    m = @which rf_slice(tRF_ms ; α_rad=kappa*α_rad, nlobe, slice_width, Δt_ms)
     rf, rephasing = rf_slice(tRF_ms ; α_rad=kappa*α_rad, nlobe, slice_width, Δt_ms)
     return rf, rephasing
 end
