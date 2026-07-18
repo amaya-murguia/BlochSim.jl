@@ -323,7 +323,6 @@ function plot_bssfp(args, y)
      title = "SNR=$snr_db dB TR=$TR_ms TE=$TE_ms T1=$T1_ms T2=$T2_ms",
     )
     label = reshape(map(x -> "$(x)° noisy", α_degs), 1, :)
-    ymat = reshape(y, length(Δϕ_rads), length(α_degs))
     Δϕ_fine = range(-1, 1, 61) * π # phase-cycling factors for plot
     @time tmp0 = Base.Fix{1}(_bssfp0, x).(Δϕ_fine, α_rads')
     @time tmp1 = ((Δϕ, α) -> _bssfp1(x, Δϕ, α, args...)).(Δϕ_fine, α_rads')
