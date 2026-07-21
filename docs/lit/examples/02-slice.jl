@@ -390,7 +390,7 @@ end
 
 ## fit with slice profile, finite rf effects
 if !@isdefined(xr1)
-    nrep = 100
+    nrep = 10
     xr1_list = Vector{Any}(undef, nrep)
     @time begin
         Threads.@threads for i in 1:nrep
