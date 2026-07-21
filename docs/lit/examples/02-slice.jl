@@ -221,7 +221,7 @@ function plot_profile(spins, zpos::AbstractArray, slice_width::Real, rtype)
     return plot(pmag, ppha; layout = (2,1), plot_title)
 end
 
-zpos2 = range(-0.2, 0.2, 201) # z positions (cm) for 2D slice-select case
+zpos2 = range(-0.2, 0.2, 21) # z positions (cm) for 2D slice-select case
 spins = make_spins(Mz0, T1_ms, T2_ms, Δf_Hz, zpos2)
 do_excite!(spins, rf1, rephasing1)
 pp2 = plot_profile(spins, zpos2, slice_width, rtype2)
