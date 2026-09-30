@@ -10,6 +10,7 @@ export bssfp
 
 using BlochSim: Position, SpinMC, excite, freeprecess, duration
 using BlochSim: AbstractRF, InstantaneousRF
+using BlochSim: GradientSpoiling # amm added this one
 using LinearAlgebra: I
 
 
@@ -220,4 +221,129 @@ function bssfp(
         TR_ms,
         args...,
     )
+end
+
+###################################### AMM edits
+# add a version of bssfp2 that uses a finite rf pulse
+
+TE_ms_type = Any # Union{Number, Val{:midTR}, Val{:postRF}}
+
+"""
+    _TE_ms(TE_ms, TR_ms, [rf])
+
+Helper to convert TE symbols to a number
+- `Val{:midTR}` for the usual TR/2 choice
+- `Val{:postRF}` immediately after RF pulse ends
+"""
+_TE_ms(TE_ms::Number, TR_ms::Number, args...) = TE_ms
+_TE_ms(::Val{:midTR}, TR_ms::Number, args...) = TR_ms / 2
+_TE_ms(::Val{:postRF}, TR_ms::Number, tRF_ms::Number) = tRF_ms / 2 # COV_EXCL_LINE
+_TE_ms(::Val{:postRF}, TR_ms::Number, rf::AbstractRF) = duration(rf) / 2
+_TE_ms(::Val{:postRF}, TR_ms::Number, args...) = 0 # COV_EXCL_LINE
+
+# I defined this because the combine function in BlochSim has not been extended to 2 pool
+# it only works for bloch matrices, not bloch-mcconnell
+function combine_mc(A1, B1, A2, B2)
+    return A2 * A1, A2 * B1 + B2
+end
+
+"""
+    BalancedRF
+Tuple type representing prephasing gradient, RF, and rephasing gradient
+as used in slice-selective bSSFP excitation.
+"""
+const BalancedRF = Tuple{<:GradientSpoiling, <:AbstractRF, <:GradientSpoiling}
+
+"""
+    bssfp(spin, TR_ms, TE_ms, Δϕ_rad, rf::AbstractRF | rf::Tuple)
+Signal accounting for phase cycling increment `Δϕ_rad`,
+allowing for finite duration `rf` pulse,
+or a 3-tuple combination of a
+- prephasing gradient
+- (typically slice selective) RF pulse
+- rephasing gradient, provided as
+`Tuple{<:GradientSpoiling, <:AbstractRF, <:GradientSpoiling}`.
+Typically the prephasing and rephasing are the same gradients.
+
+Echo time is measured from the center of the RF pulse.
+"""
+
+# function bssfp(spin::SpinMC,
+# changing the name for now so I know what I am calling during my test
+# function bssfp_2pool_finiterf(
+function bssfp(
+    spin::SpinMC,
+    TR_ms::Number, TE_ms::TE_ms_type, Δϕ_rad::Number,
+    rf::Union{AbstractRF, BalancedRF},
+)
+
+if rf isa Tuple
+        prephasing, rf, rephasing = rf
+        Tg_ms = rephasing.Tg # duration of rephasing gradient that follows RF
+else
+    prephasing = nothing
+    rephasing = nothing
+    Tg_ms = 0
+end
+
+TE_ms = _TE_ms(TE_ms, TR_ms, rf) # handle Val
+tRF_ms = duration(rf)
+tRF_ms/2 + Tg_ms ≤ TE_ms < TR_ms - tRF_ms/2 ||
+    throw("bad TE=$TE_ms for TR=$TR_ms tRF=$tRF_ms Tg=$Tg_ms")
+
+# excite the spin and reshape R to be the correct dimensions for a SpinMC object
+# does the b1 vector need to be reshaped at all?
+
+(A1, b1) = excite(spin, rf) # matrix for spin excitation, different size now since 2 pool, does exist for spinmc
+
+@show typeof(A1)   # BlochMcConnellMatrix{Float64,2}
+@show typeof(b1)   # MagnetizationMC{Float64,2}
+@show size(Matrix(A1)) # 6 x 6 matrix
+@show size(Vector(b1)) # length 6 vector
+
+# would these need to get reshaped too?
+if !isnothing(prephasing)
+    (Ap, Bp) = spoil(spin, prephasing)
+    # (A1, b1) = BlochSim.combine(Ap, Bp, A1, b1) # A1 = A1 * Ap
+    (A1, b1) = combine_mc(Ap, Bp, A1, b1) # A1 = A1 * Ap
+end
+
+# would these need to get reshaped too?
+if !isnothing(rephasing)
+    (Ar, Br) = spoil(spin, rephasing)
+    # (A1, b1) = BlochSim.combine(A1, b1, Ar, Br) # A1 = Ar * A1
+    (A1, b1) = combine_mc(A1, b1, Ar, Br) # A1 = Ar * A1
+end
+
+tRF_ms = duration(rf)
+t_free_ms = TR_ms - tRF_ms - Tg_ms # total free precession time
+(A0, d0) = freeprecess(spin, t_free_ms)
+
+@show typeof(A0)   # BlochMcConnellMatrix{Float64,2}
+@show typeof(d0)   # MagnetizationMC{Float64,2}
+@show size(Matrix(A0)) # 6 x 6 matrix
+@show size(Vector(d0)) # length 6 vector
+
+# (A, b) = BlochSim.combine(A0, d0, A1, b1) # A = A1*A0, b=A1*d0+b1
+(A, b) = combine_mc(A0, d0, A1, b1) # A = A1*A0, b=A1*d0+b1
+
+Rz = FreePrecessionMatrix(1, 1, -Δϕ_rad) # phase cycling, FreePrecessionMatrix{Float64}, 3 x 3 matrix
+@show typeof(Rz)
+@show size(Matrix(Rz))
+Rz = Matrix(Rz)
+Rz = kron(I(2), Rz)
+A = Matrix(A)
+A = A * Rz # review what this is doing
+
+# steady-state magnetization immediately after excitation block
+# i.e., at the end of the prephasing, RF, rephasing tuple:
+Mss = (I - A) \ Vector(b)
+
+# account for free precession from end of excitation block to TE:
+t_echo_ms = TE_ms - tRF_ms / 2 - Tg_ms
+
+ return complex(Mss[1]+Mss[4], Mss[2]+Mss[5]) * # complex signal
+    exp(-t_echo_ms / spin.T2[2]) * # T2 decay (check this, should I have done both components?)
+    cis(-2π/1000 * spin.Δf[2] * t_echo_ms) # off resonance, review what this is doing, and should I have done both components here too?
+
 end
