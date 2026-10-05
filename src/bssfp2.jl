@@ -244,6 +244,11 @@ _TE_ms(::Val{:postRF}, TR_ms::Number, args...) = 0 # COV_EXCL_LINE
 # I defined this because the combine function in BlochSim has not been extended to 2 pool
 # it only works for bloch matrices, not bloch-mcconnell
 function combine_mc(A1, B1, A2, B2)
+    # @show typeof(A1)
+    # @show typeof(B1)
+    # @show typeof(A2)
+    # @show typeof(B2)
+    # error("pause here")
     return A2 * A1, A2 * B1 + B2
 end
 
@@ -267,10 +272,6 @@ Typically the prephasing and rephasing are the same gradients.
 
 Echo time is measured from the center of the RF pulse.
 """
-
-# function bssfp(spin::SpinMC,
-# changing the name for now so I know what I am calling during my test
-# function bssfp_2pool_finiterf(
 function bssfp(
     spin::SpinMC,
     TR_ms::Number, TE_ms::TE_ms_type, Δϕ_rad::Number,
@@ -294,12 +295,22 @@ tRF_ms/2 + Tg_ms ≤ TE_ms < TR_ms - tRF_ms/2 ||
 # excite the spin and reshape R to be the correct dimensions for a SpinMC object
 # does the b1 vector need to be reshaped at all?
 
+# @show typeof(spin)
+# @show typeof(rf)
 (A1, b1) = excite(spin, rf) # matrix for spin excitation, different size now since 2 pool, does exist for spinmc
 
-@show typeof(A1)   # BlochMcConnellMatrix{Float64,2}
-@show typeof(b1)   # MagnetizationMC{Float64,2}
-@show size(Matrix(A1)) # 6 x 6 matrix
-@show size(Vector(b1)) # length 6 vector
+#src: check if RF if inst RF (or if b1 is nothing), and if so do the kron product like i do in my code!!
+if isnothing(b1)
+    A1 = [Matrix(A1) zeros(3,3); zeros(3,3) Matrix(A1)] # N==2 again
+end
+
+
+# println("all too well")
+
+# @show typeof(A1)   # BlochMcConnellMatrix{Float64,2}
+# @show typeof(b1)   # MagnetizationMC{Float64,2}
+# @show size(Matrix(A1)) # 6 x 6 matrix
+# @show size(Vector(b1)) # length 6 vector
 
 # would these need to get reshaped too?
 if !isnothing(prephasing)
@@ -319,17 +330,37 @@ tRF_ms = duration(rf)
 t_free_ms = TR_ms - tRF_ms - Tg_ms # total free precession time
 (A0, d0) = freeprecess(spin, t_free_ms)
 
-@show typeof(A0)   # BlochMcConnellMatrix{Float64,2}
-@show typeof(d0)   # MagnetizationMC{Float64,2}
-@show size(Matrix(A0)) # 6 x 6 matrix
-@show size(Vector(d0)) # length 6 vector
+# println("red")
+# @show typeof(A0)
+# @show typeof(d0)
+# @show size(Matrix(A0))
+# @show size(Vector(d0))
+
+# @show typeof(A0)   # BlochMcConnellMatrix{Float64,2}
+# @show typeof(d0)   # MagnetizationMC{Float64,2}
+# @show size(Matrix(A0)) # 6 x 6 matrix
+# @show size(Vector(d0)) # length 6 vector
 
 # (A, b) = BlochSim.combine(A0, d0, A1, b1) # A = A1*A0, b=A1*d0+b1
-(A, b) = combine_mc(A0, d0, A1, b1) # A = A1*A0, b=A1*d0+b1
+# src: I added the casting here
+# (A, b) = combine_mc(Matrix(A0), Vector(d0), Matrix(A1), Vector(b1)) # A = A1*A0, b=A1*d0+b1
+
+if isnothing(b1)
+    # println("state of grace")
+    # @show size(Matrix(A1))
+    # @show size(Matrix(A0))
+    # error("eyes open")
+
+    A = Matrix(A1) * Matrix(A0)
+    b = Matrix(A1) * Vector(d0)
+else
+    # println("better man")
+    A, b = combine_mc(Matrix(A0), Vector(d0), Matrix(A1), Vector(b1))
+end
 
 Rz = FreePrecessionMatrix(1, 1, -Δϕ_rad) # phase cycling, FreePrecessionMatrix{Float64}, 3 x 3 matrix
-@show typeof(Rz)
-@show size(Matrix(Rz))
+# @show typeof(Rz)
+# @show size(Matrix(Rz))
 Rz = Matrix(Rz)
 Rz = kron(I(2), Rz)
 A = Matrix(A)

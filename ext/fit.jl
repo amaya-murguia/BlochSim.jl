@@ -15,7 +15,7 @@ so we include these helper functions.
 import BlochSim: fit_signal, optimize_multistart # extended here
 
 using ADTypes: AutoForwardDiff
-using Optim: optimize, LBFGS
+using Optim: optimize, LBFGS, Fminbox
 
 
 """
@@ -48,6 +48,8 @@ function optimize_multistart(
     costs::AbstractVector = Vector{Float64}(undef, ntry),
     autodiff = AutoForwardDiff(),
     optim_method = LBFGS(),
+    lower = nothing,
+    upper = nothing,
 )
 
     min_cost = Inf
@@ -55,7 +57,20 @@ function optimize_multistart(
 
     for i in 1:ntry
         x0 = x0fun(i)
-        opt = optimize(cost, x0, optim_method; autodiff)
+
+        opt = if isnothing(lower) || isnothing(upper)
+            optimize(cost, x0, optim_method; autodiff)
+        else
+            optimize(
+                cost,
+                lower,
+                upper,
+                x0,
+                Fminbox(optim_method);
+                autodiff,
+            )
+        end
+        
         if opt.minimum < min_cost
             min_cost = opt.minimum
             xbest = opt.minimizer
@@ -63,7 +78,7 @@ function optimize_multistart(
         costs[i] = opt.minimum
     end
 
-    xbest == nothing && throw("No finite cost found")
+    isnothing(xbest) && error("No finite cost found")
 
     return xbest
 end
