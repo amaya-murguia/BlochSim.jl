@@ -279,8 +279,8 @@ function bssfp(
 )
 
 if rf isa Tuple
-        prephasing, rf, rephasing = rf
-        Tg_ms = rephasing.Tg # duration of rephasing gradient that follows RF
+    prephasing, rf, rephasing = rf
+    Tg_ms = rephasing.Tg # duration of rephasing gradient that follows RF
 else
     prephasing = nothing
     rephasing = nothing
@@ -373,8 +373,14 @@ Mss = (I - A) \ Vector(b)
 # account for free precession from end of excitation block to TE:
 t_echo_ms = TE_ms - tRF_ms / 2 - Tg_ms
 
- return complex(Mss[1]+Mss[4], Mss[2]+Mss[5]) * # complex signal
-    exp(-t_echo_ms / spin.T2[2]) * # T2 decay (check this, should I have done both components?)
-    cis(-2π/1000 * spin.Δf[2] * t_echo_ms) # off resonance, review what this is doing, and should I have done both components here too?
+#  return complex(Mss[1]+Mss[4], Mss[2]+Mss[5]) * # complex signal
+#     exp(-t_echo_ms / spin.T2[2]) * # T2 decay (check this, should I have done both components?)
+#     cis(-2π/1000 * spin.Δf[2] * t_echo_ms) # off resonance, review what this is doing, and should I have done both components here too?
+
+# wrong because would need to make the other spin object
+(Ae, be) = freeprecess(spin, t_echo_ms)
+Me = Matrix(Ae) * Mss + Vector(be)
+
+return complex(Me[1] + Me[4], Me[2] + Me[5])
 
 end

@@ -126,7 +126,7 @@ T1_s_ms = 850 # T1 for slow-relaxing, non-myelin water compartment
 T2_f_ms = 10 # T2 for fast-relaxing, myelin water compartment
 T2_s_ms = 80 # T2 for slow-relaxing, non-myelin water compartment
 
-Δf_myelin_Hz = 5.0 # frequency shift of myelin water
+Δf_myelin_Hz = 0# 5.0 # frequency shift of myelin water
 Δf_Hz = 0.0 # set off-resonance to zero for this plot
 
 TR_ms, TE_ms = 8, 4; # scan parameters
@@ -258,7 +258,8 @@ Scale factor since excited slice occupies a small fraction of z FOV:
 # src more spins than the length of the slice
 # src should I use 0.1 or 0.2 here? first was 0.2 but I changed it to 0.1 to match
 zpos2_fine = range(-0.2, 0.2, 401) # z positions (cm) for 2D slice-select case
-zpos2_sim = range(-0.1, 0.1, 41) # fewer z positions (cm) for speed
+# zpos2_sim = range(-0.1, 0.1, 41) # fewer z positions (cm) for speed
+zpos2_sim = range(-0.2, 0.2, 41) # fewer z positions (cm) for speed
 
 zfov2_sim = maximum(zpos2_sim) - minimum(zpos2_sim)
 zfov2_fine = maximum(zpos2_fine) - minimum(zpos2_fine)
@@ -357,7 +358,7 @@ despite data having slice-selection effects in the simulated data.
 
 # Function for fitting noisy signal
 rand20(x::Number) = x * (1 + 0.2 * (rand() - 0.5) / 0.5) # ± 20% variability
-ntry = 10
+ntry = 3
 
 
 # function do_fit(signal_ri::Function, i::Int, yb, σ::Real)
@@ -430,7 +431,7 @@ tab2_0 = [ # estimation results table, inst RF
 
 # Fit with slice profile, finite RF effects (much slower, so use course z sampling)
 if !@isdefined(xr1)
-    nrep = 10
+    nrep = 3
     xr1_list = Vector{Any}(undef, nrep)
     @time begin
         Threads.@threads for i in 1:nrep
@@ -445,7 +446,7 @@ end;
 
 tab2_1 = [ # estimation results table, slice profile/finite RF
  :param :value :μ1 :σ1 :σcrb1;
- collect(keys(xt)) collect(xt) round2.([mean1 std1 crb1]);
+ collect(keys(xt)) collect(xt) round2.([mean1 std1 crb1_sim]);
 ]
 
 #=
@@ -466,13 +467,15 @@ function plot_bssfp_finite_rf_sp_data_fits(args::Tuple)
     label_raw = reshape(map(x -> "$(x)° ideal simulated data", α_degs), 1, :)
 
     # fit with model mismatch (inst RF)
-    signal_c0_fit_complex = signal_c0(xr0)
+    signal_c0_fit_complex = signal2_c0(xr0)
+    @show size(signal_c0_fit_complex)
     signal_c0_fit_complex_fine = Base.Fix{1}(_bssfp0, xr0).(Δϕ_plot, α_rads')
     label_fit = reshape(map(x -> "$(x)° fit points", α_degs), 1, :)
     label_fit_fine = reshape(map(x -> "$(x)° fit", α_degs), 1, :)
 
     # fit without model mismatch (finite RF/slice profile effects)
-    signal_c1_fit_complex = signal_c1(xr1, args...)
+    signal_c1_fit_complex = signal2_c1(xr1, args...)
+    @show size(signal_c1_fit_complex)
     f = (Δϕ, α) -> _bssfp1(xr1, Δϕ, α, args...)
     signal_c1_fit_complex_fine = f.(Δϕ_plot, α_rads')
 
