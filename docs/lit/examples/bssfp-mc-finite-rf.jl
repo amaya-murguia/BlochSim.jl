@@ -126,7 +126,7 @@ T1_s_ms = 850 # T1 for slow-relaxing, non-myelin water compartment
 T2_f_ms = 10 # T2 for fast-relaxing, myelin water compartment
 T2_s_ms = 80 # T2 for slow-relaxing, non-myelin water compartment
 
-Δf_myelin_Hz = 0# 5.0 # frequency shift of myelin water
+Δf_myelin_Hz = 5.0 # frequency shift of myelin water
 Δf_Hz = 0.0 # set off-resonance to zero for this plot
 
 TR_ms, TE_ms = 8, 4; # scan parameters
@@ -209,7 +209,8 @@ Hand-crafted scan "design"
 with various phase-cycling increments and flip angles:
 =#
 Δϕ_rads = (1:8)/8 * 2π .- π # phase-cycling factors
-α_degs = [10, 30, 50] # flip angles
+# α_degs = [10, 30, 50] # flip angles
+α_degs = [10, 20, 30] # flip angles
 α_rads = deg2rad.(α_degs)
 design = Iterators.product(Δϕ_rads, α_rads)
 num_scans = length(design) # number of different scans
@@ -388,6 +389,22 @@ function do_fit(signal_ri::Function, i::Int, yb, σ::Real)
     )
 end
 
+# edited version of the above function that uses the form of
+# fit_signal that takes in an array instead of a function
+function do_fit_truth(signal_ri::Function, i::Int, yb, σ::Real)
+    seed!(i)
+    y = yb + σ * randn(ComplexF64, size(yb))
+
+    return fit_signal(
+        signal_ri,
+        x,
+        real_imag(vec(y));
+        ntry,
+        lower,
+        upper,
+    )
+end
+
 #=
 ### Simulations
 Because of the serious model mismatch illustrated above,
@@ -424,9 +441,21 @@ if !@isdefined(xr0) || false
     std0 = std2(xr0)
 end;
 
+if !@isdefined(xr0_init_truth) || false
+    nrep = 10
+    @time xr0_init_truth = stack([do_fit_truth(signal2_ri0, i, yb, σ) for i in 1:nrep])
+    mean0_init_truth = mean2(xr0_init_truth)
+    std0_init_truth = std2(xr0_init_truth)
+end;
+
 tab2_0 = [ # estimation results table, inst RF
  :param :value :μ0 :σ0 :σcrb0;
  collect(keys(xt)) collect(xt) round2.([mean0 std0 crb0]);
+]
+
+tab2_0_init_truth = [ # estimation results table, inst RF
+ :param :value :μ0 :σ0 :σcrb0;
+ collect(keys(xt)) collect(xt) round2.([mean0_init_truth std0_init_truth crb0]);
 ]
 
 # Fit with slice profile, finite RF effects (much slower, so use course z sampling)
@@ -444,9 +473,28 @@ if !@isdefined(xr1)
     std1 = std2(xr1)
 end;
 
+if !@isdefined(xr1_init_truth)
+    nrep = 10
+    xr1_list_init_truth = Vector{Any}(undef, nrep)
+    @time begin
+        Threads.@threads for i in 1:nrep
+            xr1_list_init_truth[i] = do_fit_truth(signal2_ri1, i, yb, σ)
+            @show i
+        end
+        xr1_init_truth = stack(xr1_list_init_truth)
+    end
+    mean1_init_truth = mean2(xr1_init_truth)
+    std1_init_truth = std2(xr1_init_truth)
+end;
+
 tab2_1 = [ # estimation results table, slice profile/finite RF
  :param :value :μ1 :σ1 :σcrb1;
  collect(keys(xt)) collect(xt) round2.([mean1 std1 crb1_sim]);
+]
+
+tab2_1_init_truth = [ # estimation results table, slice profile/finite RF
+ :param :value :μ1 :σ1 :σcrb1;
+ collect(keys(xt)) collect(xt) round2.([mean1_init_truth std1_init_truth crb1_sim]);
 ]
 
 #=
@@ -467,16 +515,16 @@ function plot_bssfp_finite_rf_sp_data_fits(args::Tuple)
     label_raw = reshape(map(x -> "$(x)° ideal simulated data", α_degs), 1, :)
 
     # fit with model mismatch (inst RF)
-    signal_c0_fit_complex = signal2_c0(xr0)
+    signal_c0_fit_complex = signal2_c0(xr0_init_truth)
     @show size(signal_c0_fit_complex)
-    signal_c0_fit_complex_fine = Base.Fix{1}(_bssfp0, xr0).(Δϕ_plot, α_rads')
+    signal_c0_fit_complex_fine = Base.Fix{1}(_bssfp0, xr0_init_truth).(Δϕ_plot, α_rads')
     label_fit = reshape(map(x -> "$(x)° fit points", α_degs), 1, :)
     label_fit_fine = reshape(map(x -> "$(x)° fit", α_degs), 1, :)
 
     # fit without model mismatch (finite RF/slice profile effects)
-    signal_c1_fit_complex = signal2_c1(xr1, args...)
+    signal_c1_fit_complex = signal2_c1(xr1_init_truth, args...)
     @show size(signal_c1_fit_complex)
-    f = (Δϕ, α) -> _bssfp1(xr1, Δϕ, α, args...)
+    f = (Δϕ, α) -> _bssfp1(xr1_init_truth, Δϕ, α, args...)
     signal_c1_fit_complex_fine = f.(Δϕ_plot, α_rads')
 
     # magnitude (inst RF)
