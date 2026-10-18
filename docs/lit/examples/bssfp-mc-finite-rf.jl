@@ -46,6 +46,7 @@ using MIRTjim: prompt
 using MRIPulses: dzrf
 using Plots: default, gui
 using Plots: plot, plot!, scatter!, scatter3d!, text
+using Plots: @layout
 using Plots.PlotMeasures: mm
 using Random: seed!
 using Measures: mm
@@ -204,6 +205,30 @@ x = collect(Float64, xt) # unknowns in vector
 lower = [0.01, 0.05, 20,  100,  200,  4,   20,  2, -10, 0.9]
 upper = [2,    0.4,  500, 700,  1200, 100, 500, 10, 10, 1.1]
 
+τ_fs_ms_1 = 20
+xt1 = (; Mz0, f_f, τ_fs_ms_1, T1_f_ms, T1_s_ms, T2_f_ms, T2_s_ms, Δf_myelin_Hz, Δf_Hz, kappa) # tuple
+x1 = collect(Float64, xt1)
+
+τ_fs_ms_2 = 100
+xt2 = (; Mz0, f_f, τ_fs_ms_2, T1_f_ms, T1_s_ms, T2_f_ms, T2_s_ms, Δf_myelin_Hz, Δf_Hz, kappa) # tuple
+x2 = collect(Float64, xt2)
+
+τ_fs_ms_3 = 500
+xt3 = (; Mz0, f_f, τ_fs_ms_3, T1_f_ms, T1_s_ms, T2_f_ms, T2_s_ms, Δf_myelin_Hz, Δf_Hz, kappa) # tuple
+x3 = collect(Float64, xt3)
+
+f_f_4 = 0.10
+xt4 = (; Mz0, f_f_4, τ_fs_ms, T1_f_ms, T1_s_ms, T2_f_ms, T2_s_ms, Δf_myelin_Hz, Δf_Hz, kappa) # tuple
+x4 = collect(Float64, xt4)
+
+f_f_5 = 0.20
+xt5 = (; Mz0, f_f_5, τ_fs_ms, T1_f_ms, T1_s_ms, T2_f_ms, T2_s_ms, Δf_myelin_Hz, Δf_Hz, kappa) # tuple
+x5 = collect(Float64, xt5)
+
+f_f_6 = 0.30
+xt6 = (; Mz0, f_f_6, τ_fs_ms, T1_f_ms, T1_s_ms, T2_f_ms, T2_s_ms, Δf_myelin_Hz, Δf_Hz, kappa) # tuple
+x6 = collect(Float64, xt6)
+
 #=
 Hand-crafted scan "design"
 with various phase-cycling increments and flip angles:
@@ -349,8 +374,393 @@ function plot_bssfp(args, yb, do_fine::Bool=false;
 end
 pb1 = plot_bssfp(args2_sim, yb, true)
 
+############################ ISMRM figure 1 ###########################
+##
+function plot_bssfp_fig1(args, yb, do_fine::Bool=false;
+    ylims = (0, 0.12), rtype = "sinc",
+)
+
+    # create the legends that I want
+
+    # Legend for the fast-fraction plots
+    plegend_ff = plot(;
+        framestyle = :none,
+        axis = false,
+        grid = false,
+        legend = :left,
+    )
+
+    # Legend for the exchange-rate plots
+    plegend_exchange = plot(;
+        framestyle = :none,
+        axis = false,
+        grid = false,
+        legend = :left,
+    )
+
+    # Legend shared by the two plots on the right
+    plegend_rf = plot(;
+        framestyle = :none,
+        axis = false,
+        grid = false,
+        legend = :left,
+    )
+
+    # Blank cell below the shared right-side legend
+    plegend_rf_blank = plot(;
+        framestyle = :none,
+        axis = false,
+        ticks = false,
+        grid = false,
+        legend = false,
+    )
+
+    # First vary the fast fraction and the exchange rate and plot results
+
+    Δϕ_plot = range(-1, 1, 61) * π # phase-cycling factors for plot
+    ff_colors = [4 5 6]
+    exchange_colors = [4 5 6]
+    color = [1 2 3]
+    xaxis = ("Phase Cycling Increment Δθ (rad)", (-π, π), ((-1:1).*π, ["-π", "0", "π"]))
+
+
+    top_plot_margins = (
+    left_margin   = 14mm,
+    right_margin  = 4mm,
+    top_margin    = 6mm,
+    bottom_margin = 12mm,
+    )
+
+    bottom_plot_margins = (
+    left_margin   = 14mm,
+    right_margin  = 4mm,
+    top_margin    = 10mm,
+    bottom_margin = 12mm,
+    )
+
+    # different exchange rates
+    tmp_x1 = Base.Fix{1}(_bssfp0, x1).(Δϕ_plot, α_rads')
+    tmp_x2 = Base.Fix{1}(_bssfp0, x2).(Δϕ_plot, α_rads')
+    tmp_x3 = Base.Fix{1}(_bssfp0, x3).(Δϕ_plot, α_rads')
+
+    # different fast fractions
+    tmp_x4 = Base.Fix{1}(_bssfp0, x4).(Δϕ_plot, α_rads')
+    tmp_x5 = Base.Fix{1}(_bssfp0, x5).(Δϕ_plot, α_rads')
+    tmp_x6 = Base.Fix{1}(_bssfp0, x6).(Δϕ_plot, α_rads')
+
+    # Magnitude plot - 3 different fast fractions
+    p11 = plot(;
+        xaxis,
+        widen = true,
+        ylabel = "Signal Magnitude",
+        title = "(a) Instantaneous RF: Vary Fast Fraction",
+        legend = :bottomright, top_plot_margins...,
+    )
+
+    plot!(
+        p11,
+        Δϕ_plot,
+        abs.(tmp_x4);
+        color = ff_colors,
+        line = :solid,
+        label = false,
+    )
+
+    plot!(
+        p11,
+        Δϕ_plot,
+        abs.(tmp_x5);
+        color = ff_colors,
+        line = :dash,
+        label = false,
+    )
+
+    plot!(
+        p11,
+        Δϕ_plot,
+        abs.(tmp_x6);
+        color = ff_colors,
+        line = :dot,
+        label = false,
+    )
+
+    # phase plots - 3 different fast fractions
+    p21 = plot(;
+        xaxis,
+        widen = true,
+        ylabel = "Signal Phase (rad)",
+        legend = false, bottom_plot_margins...,
+    )
+
+     plot!(
+        p21,
+        Δϕ_plot,
+        angle.(tmp_x4);
+        color = ff_colors,
+        line = :solid,
+        label = false,
+    )
+
+    plot!(
+        p21,
+        Δϕ_plot,
+        angle.(tmp_x5);
+        color = ff_colors,
+        line = :dash,
+        label = false,
+    )
+
+    plot!(
+        p21,
+        Δϕ_plot,
+        angle.(tmp_x6);
+        color = ff_colors,
+        line = :dot,
+        label = false,
+    )
+
+    # populate the fast fraction legend
+    for (i, α) in enumerate(α_degs)
+    plot!(
+        p11,
+        [NaN],
+        [NaN];
+        color = ff_colors[i],
+        line = :solid,
+        label = "α=$(α)°",
+    )
+end
+    plot!(p11, [NaN], [NaN];
+        color = :black,
+        line = :solid,
+        label = "fast fraction 0.10",
+    )
+
+    plot!(p11, [NaN], [NaN];
+        color = :black,
+        line = :dash,
+        label = "fast fraction 0.20",
+    )
+
+    plot!(p11, [NaN], [NaN];
+        color = :black,
+        line = :dot,
+        label = "fast fraction 0.30",
+    )
+
+    # Magnitude plot -3 different exchange rates
+    p12 = plot(;
+        xaxis,
+        ylims,
+        widen = true,
+        title = "(b) Instantaneous RF: Vary Mean Residence Time",
+        legend = :bottomright, top_plot_margins...,
+    )
+
+    plot!(
+        p12,
+        Δϕ_plot,
+        abs.(tmp_x1);
+        color = exchange_colors,
+        line = :solid,
+        label = false,
+    )
+
+    plot!(
+        p12,
+        Δϕ_plot,
+        abs.(tmp_x2);
+        color = exchange_colors,
+        line = :dash,
+        label = false,
+    )
+
+    plot!(
+        p12,
+        Δϕ_plot,
+        abs.(tmp_x3);
+        color = exchange_colors,
+        line = :dot,
+        label = false,
+    )
+
+    # Phase plot - 3 different exchange rates
+    p22 = plot(;
+        xaxis,
+        widen = true,
+        legend = :bottomright, bottom_plot_margins...,
+    )
+
+    plot!(
+        p22,
+        Δϕ_plot,
+        angle.(tmp_x1);
+        color = exchange_colors,
+        line = :solid,
+        label = false,
+    )
+
+    plot!(
+        p22,
+        Δϕ_plot,
+        angle.(tmp_x2);
+        color = exchange_colors,
+        line = :dash,
+        label = false,
+    )
+
+    plot!(
+        p22,
+        Δϕ_plot,
+        angle.(tmp_x3);
+        color = exchange_colors,
+        line = :dot,
+        label = false,
+    )
+
+    # populate the exchange rate legend
+    for (i, α) in enumerate(α_degs)
+    plot!(
+        p12,
+        [NaN],
+        [NaN];
+        color = exchange_colors[i],
+        line = :solid,
+        label = "α=$(α)°",
+    )
+    end
+
+    plot!(p12, [NaN], [NaN];
+        color = :black,
+        line = :solid,
+        label = "MRT 20 ms",
+    )
+
+    plot!(p12, [NaN], [NaN];
+        color = :black,
+        line = :dash,
+        label = "MRT 100 ms",
+    )
+
+    plot!(p12, [NaN], [NaN];
+        color = :black,
+        line = :dot,
+        label = "MRT 500 ms",
+    )
+    
+
+    # Magnitude
+    pmism = plot( ; xaxis, ylims, widen = true,
+     title = "(c) Instantaneous vs. Finite RF", ylabel = "Signal Magnitude", legend = false, top_plot_margins...,
+    )
+    @time tmp0 = Base.Fix{1}(_bssfp0, x).(Δϕ_plot, α_rads')
+    tmp_fun(argt) = ((Δϕ, α) -> _bssfp1(x, Δϕ, α, argt...)).(Δϕ_plot, α_rads')
+    @time tmp1 = tmp_fun(args); n1 = length(args[3])
+    if do_fine
+        @time tmp2 = tmp_fun(args2_fine); 
+        n2 = length(args2_fine[3]);
+        labels2 = reshape(["α=$(α)°, $tRF_ms ms $rtype RF [$n2]" for α in α_degs],1, :);
+        plot!(Δϕ_plot, abs.(tmp2); label=labels2, color)
+    end
+    labels1 = reshape(["α=$(α)°, $tRF_ms ms $rtype RF [$n1]" for α in α_degs],1, :)
+    plot!(Δϕ_plot, abs.(tmp1); label=labels1, line=:dot, color)
+    labels0 = reshape(["α=$(α)°, 0 ms RF" for α in α_degs],1, :)
+    plot!(Δϕ_plot, abs.(tmp0); label=labels0, line=:dash, color)
+    data_labels = reshape(["α=$(α)° noiseless data from $tRF_ms ms $rtype RF [$n2]" for α in α_degs],1, :)
+    scatter!(Δϕ_rads, abs.(reshape(yb, length(Δϕ_rads), :)); label=data_labels, color)
+    
+    # Phase (fairly small effect of slice-selective excitation):
+    # src fix the labels on here later!!!
+    pmisa = plot( ; xaxis, widen = true, legend=false, ylabel = "Signal Phase (rad)", bottom_plot_margins...,
+    )
+    if do_fine
+        plot!(Δϕ_plot, angle.(tmp2); label=labels2, color)
+    end
+    plot!(Δϕ_plot, angle.(tmp1); line=:dot, label=labels1, color)
+    @show angle.(tmp0[:,1])
+    @show angle.(tmp0[:,2])
+    @show angle.(tmp0[:,3])
+    # not the same this time!! should they be???
+    # @assert angle.(tmp0[:,1]) ≈ angle.(tmp0[:,2]) ≈ angle.(tmp0[:,3]) # same!
+    # plot!(Δϕ_plot, angle.(tmp0[:,1]); line=:dash, label=labels0)
+    plot!(Δϕ_plot, angle.(tmp0); line=:dash, label=labels0, color)
+    # plot!(Δϕ_plot, angle.(tmp0[:,1]); label="0 ms RF", line=:dash, color=:black)
+    scatter!(Δϕ_rads, angle.(reshape(yb, length(Δϕ_rads), :)); color, label=data_labels)
+
+
+    for (i, α) in enumerate(α_degs)
+        if do_fine
+            plot!(plegend_rf, [NaN], [NaN];
+                label = "α=$(α)°, $tRF_ms ms $rtype RF [$n2]",
+                color = i,
+            )
+        end
+
+        plot!(plegend_rf, [NaN], [NaN];
+            label = "α=$(α)°, $tRF_ms ms $rtype RF [$n1]",
+            color = i,
+            line = :dot,
+        )
+
+        plot!(plegend_rf, [NaN], [NaN];
+            label = "α=$(α)°, 0 ms RF",
+            color = i,
+            line = :dash,
+        )
+
+        scatter!(plegend_rf, [NaN], [NaN];
+            label = "α=$(α)° noiseless data from $tRF_ms ms $rtype RF [$n2]",
+            color = i,
+        )
+    end
+
+    layout = grid(
+    2,
+    5;
+    widths = [0.27, 0.27, 0.04, 0.27, 0.15],
+    heights = [0.5, 0.5],
+)
+    
+    # plot!(pmisa;
+    # legend = :outerright,
+    # legend_foreground_color = :transparent,
+    # legend_background_color = :transparent,
+    # legend_font_color = :transparent,
+    # )
+
+    # return plot(pmism, pmisa, layout=(2,1), size=(1200, 800),
+    #     left_margin = 10mm, top_margin = 5mm, bottom_margin = 5mm)
+
+plot!(p11; left_margin = 24mm)
+plot!(p21; left_margin = 24mm)
+
+return plot(
+    # Top row
+    p11,
+    p12,
+    plegend_rf_blank,
+    pmism,
+    plegend_rf,
+
+    # Bottom row
+    p21,
+    p22,
+    plegend_rf_blank,
+    pmisa,
+    plegend_rf_blank;
+
+    layout = layout,
+    size = (3000, 1200),
+)
+
+end
+pb1 = plot_bssfp_fig1(args2_sim, yb, true)
+
+
+##
 prompt()
 
+##########################################################
 #=
 ### Model fitting
 Using instantaneous RF model,
