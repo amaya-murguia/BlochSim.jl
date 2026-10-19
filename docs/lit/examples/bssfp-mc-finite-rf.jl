@@ -46,11 +46,12 @@ using MIRTjim: prompt
 using MRIPulses: dzrf
 using Plots: default, gui
 using Plots: plot, plot!, scatter!, scatter3d!, text
-using Plots: @layout, annotate!, text
+using Plots: @layout, annotate!, text, Shape
 using Plots.PlotMeasures: mm
 using Random: seed!
 using Measures: mm
 using Printf: @sprintf
+using Colors: RGB
 
 default(titlefontsize = 10, markerstrokecolor = :auto, label="", linewidth = 2)
 seed!(0);
@@ -857,6 +858,8 @@ if !@isdefined(xr0) || false
     mean0 = mean2(xr0)
     std0 = std2(xr0)
 end;
+cv0_emp = std0./mean0
+cv0_crb = crb0./collect(xt)
 
 if !@isdefined(xr0_init_truth) || false
     nrep = 10
@@ -864,6 +867,8 @@ if !@isdefined(xr0_init_truth) || false
     mean0_init_truth = mean2(xr0_init_truth)
     std0_init_truth = std2(xr0_init_truth)
 end;
+cv0_emp_init_truth = std0_init_truth./mean0_init_truth
+cv0_crb = crb0./collect(xt)
 
 tab2_0 = [ # estimation results table, inst RF
  :param :value :μ0 :σ0 :σcrb0;
@@ -873,6 +878,11 @@ tab2_0 = [ # estimation results table, inst RF
 tab2_0_init_truth = [ # estimation results table, inst RF
  :param :value :μ0 :σ0 :σcrb0;
  collect(keys(xt)) collect(xt) round2.([mean0_init_truth std0_init_truth crb0]);
+]
+
+tab2_0_init_truth_larger = [ # estimation results table
+ :Param_Name :True_Value :Emp_Mean :Emp_SD :Emp_CV :CRB_SD :CRB_CV;
+ collect(keys(xt)) collect(xt) round2.([mean0_init_truth std0_init_truth cv0_emp_init_truth crb0 cv0_crb]);
 ]
 
 # Fit with slice profile, finite RF effects (much slower, so use course z sampling)
@@ -903,6 +913,8 @@ if !@isdefined(xr1_init_truth)
     mean1_init_truth = mean2(xr1_init_truth)
     std1_init_truth = std2(xr1_init_truth)
 end;
+cv1_emp_init_truth = std1_init_truth./mean1_init_truth
+cv1_crb = crb1_sim./collect(xt)
 
 tab2_1 = [ # estimation results table, slice profile/finite RF
  :param :value :μ1 :σ1 :σcrb1;
@@ -912,6 +924,11 @@ tab2_1 = [ # estimation results table, slice profile/finite RF
 tab2_1_init_truth = [ # estimation results table, slice profile/finite RF
  :param :value :μ1 :σ1 :σcrb1;
  collect(keys(xt)) collect(xt) round2.([mean1_init_truth std1_init_truth crb1_sim]);
+]
+
+tab2_1_init_truth_larger = [ # estimation results table
+ :Param_Name :True_Value :Emp_Mean :Emp_SD :Emp_CV :CRB_SD :CRB_CV;
+ collect(keys(xt)) collect(xt) round2.([mean1_init_truth std1_init_truth cv1_emp_init_truth crb1_sim cv1_crb]);
 ]
 
 ## use data generated with inst rf (yb_inst)
@@ -932,7 +949,7 @@ cv0_crb = crb0./collect(xt)
 ## create the table to add to the plot
 # add the CVs to this table (empirical and CRB)
 tab2_0_all_inst_rf = [ # estimation results table
- :Param_Name :True_Param_Value :Empirical_Mean :Empirical_SD :CRB_SD;
+ :Param_Name :True_Param_Value :Empirical_Estimated_Mean :Empirical_SD :CRB_SD;
  collect(keys(xt)) collect(xt) round2.([mean0 std0 crb0]);
 ]
 
@@ -942,7 +959,7 @@ tab2_0_all_inst_rf = [ # estimation results table
 # ]
 
 ##
-function plot_bssfp_fit_fig2()
+function plot_bssfp_fit_fig2_v1()
 
     color = [:green :red :blue]
 
@@ -986,7 +1003,7 @@ function plot_bssfp_fit_fig2()
     plot!(real.(signal_c0_fit_complex_fine), imag.(signal_c0_fit_complex_fine); label=label_fit_fine, color)
 
     # ============================================================
-    # Subplot 4: table1 as aligned cell annotations
+    # Subplot 4: v1: table1 as aligned cell annotations
     # ============================================================
 
     function fmt_table_cell(x; sigdigits=3)
@@ -1118,7 +1135,223 @@ display(p_combined)
     
 end
 
-plot_bssfp_fit_fig2()
+plot_bssfp_fit_fig2_v1()
+
+
+tab2_0_all_inst_rf = [ # estimation results table
+ :Param_Name :True_Param_Value :Empirical_Estimated_Mean :Empirical_SD :Empirical_CV :CRB_SD :CRB_CV;
+ collect(keys(xt)) collect(xt) round2.([mean0 std0 cv0_emp crb0 cv0_crb]);
+]
+
+
+function plot_bssfp_fit_fig2_v2()
+
+    color = [:green :red :blue]
+
+    # set some initializations
+    num_PCFs = length(Δϕ_rads)
+    num_flips = length(α_rads)
+    xaxis = ("Phase Cycling Increment Δϕ (rad)", (-π, π), ((-1:1).*π, ["-π", "0", "π"]))
+    Δϕ_plot = range(-1, 1, 61) * π # fine phase-cycling factors for plot
+
+    # raw (simulated) inst RF data
+    ymat = reshape(yb_inst, num_PCFs, num_flips)
+    label_raw = reshape(map(x -> "$(x)° ideal noiseless simulated data", α_degs), 1, :)
+
+    # (inst RF)
+    signal_c0_fit_complex = signal2_c0(xr0) #signal2_c0(xr0_all_inst_rf)
+    @show size(signal_c0_fit_complex)
+    signal_c0_fit_complex_fine = Base.Fix{1}(_bssfp0, xr0_init_truth).(Δϕ_plot, α_rads')
+    label_fit = reshape(map(x -> "$(x)° fit points", α_degs), 1, :)
+    label_fit_fine = reshape(map(x -> "$(x)° fit", α_degs), 1, :)
+
+
+
+    # magnitude (inst RF)
+    pmism_inst = plot( ; xaxis, ylabel = "Signal Magnitude",widen = true,
+     title = "(a) Signal Magnitude vs. Phase Cycling Factor Δθ", legend=:none)
+    scatter!(Δϕ_rads, abs.(ymat); label=label_raw, markersize=6, color) # raw noiseless simulated data
+    scatter!(Δϕ_rads, abs.(signal_c0_fit_complex); label=label_fit, markershape=:x,markersize=4,
+     markerstrokewidth=1, color) # fitted points
+    plot!(Δϕ_plot, abs.(signal_c0_fit_complex_fine); label=label_fit_fine, color) # finer fit
+
+    # phase (inst RF)
+    pmisp_inst = plot( ; xaxis, widen = true, ylabel = "Signal Phase (rad)",legend=:none, title = "(b) Signal Phase vs. Phase Cycling Factor Δθ")
+    scatter!(Δϕ_rads, angle.(ymat); label=label_raw, markersize=6, color)
+    scatter!(Δϕ_rads, angle.(signal_c0_fit_complex); label=label_fit, markershape=:x,markersize=4, markerstrokewidth=1, color)
+    plot!(Δϕ_plot, angle.(signal_c0_fit_complex_fine); label=label_fit_fine, color)
+
+    # imaginary vs. real signal
+    pmisri_inst = plot( ; xaxis, widen = true, ylabel = "Signal Phase (rad)",legend=:none, title = "(c) Imag(Signal) vs. Real(Signal)")
+    scatter!(real.(ymat), imag.(ymat); label=label_raw, markersize=6, color)
+    scatter!(real.(signal_c0_fit_complex), imag.(signal_c0_fit_complex); label=label_fit, markershape=:x,markersize=4, markerstrokewidth=1, color)
+    plot!(real.(signal_c0_fit_complex_fine), imag.(signal_c0_fit_complex_fine); label=label_fit_fine, color)
+
+    # ============================================================
+    # Subplot 4 (v2): table1 as aligned cell annotations
+    # ============================================================
+
+    function fmt_table_cell(x; sigdigits=3)
+        if x isa AbstractFloat
+            if isnan(x)
+                return "N/A"
+            elseif isinf(x)
+                return string(x)
+            elseif abs(x) >= 1e4 || 0 < abs(x) < 1e-3
+                return @sprintf("%.2e", x)
+            else
+                return string(round(x; sigdigits=sigdigits))
+            end
+        elseif x isa Integer
+            return string(x)
+        else
+            return string(x)
+        end
+    end
+
+    table1 = tab2_0_all_inst_rf
+
+    headers = replace.(string.(table1[1, :]), "_" => " ")
+    body = table1[2:end, :]
+
+    nrows, ncols = size(body)
+
+    # Table geometry
+    left   = 0.02
+    right  = 0.98
+    top    = 0.92
+    bottom = 0.08
+
+    # Relative column widths; adjust as needed
+    # col_weights = [1.45, 1.0, 1.0, 1.0, 1.0]
+    # col_weights = col_weights[1:ncols]
+    # col_widths = (right - left) .* col_weights ./ sum(col_weights)
+
+    col_weights = ones(ncols)
+    col_weights[1] = 1.45
+    col_widths = (right - left) .* col_weights ./ sum(col_weights)
+
+    # Column edges
+    xedges = vcat(left, left .+ cumsum(col_widths))
+
+    # Header plus body rows
+    total_rows = nrows + 1
+    row_height = (top - bottom) / total_rows
+    yedges = top .- (0:total_rows) .* row_height
+
+    p4 = plot(
+        xlims = (0, 1),
+        ylims = (0, 1),
+        framestyle = :none,
+        grid = false,
+        legend = false,
+        ticks = false,
+        title = "(c) Parameter Estimates",
+    )
+
+    # Draw header and body backgrounds
+    for i in 1:total_rows
+        y_top = yedges[i]
+        y_bottom = yedges[i + 1]
+
+        row_color =
+            i == 1      ? RGB(0.88, 0.88, 0.88) :
+            iseven(i)   ? RGB(0.97, 0.97, 0.97) :
+                        :white
+
+        for j in 1:ncols
+            x_left = xedges[j]
+            x_right = xedges[j + 1]
+
+            # Cell background and border
+            plot!(
+                p4,
+                Shape(
+                    [x_left, x_right, x_right, x_left],
+                    [y_bottom, y_bottom, y_top, y_top]
+                ),
+                fillcolor = row_color,
+                linecolor = :black,
+                linewidth = 0.75,
+                label = false
+            )
+        end
+    end
+
+    fontsize_header = 9
+    fontsize_body = 9
+    xpad = 0.008
+
+    # Body
+    for i in 1:nrows
+        y = (yedges[i + 1] + yedges[i + 2]) / 2
+
+        for j in 1:ncols
+            # Horizontal center of the cell
+            x = (xedges[j] + xedges[j + 1]) / 2
+
+            cell_text = fmt_table_cell(body[i, j]; sigdigits=3)
+            if j == 1
+                cell_text = replace(cell_text, "_" => " ")
+            end
+
+            annotate!(
+                p4,
+                x,
+                y,
+                text(
+                    cell_text,
+                    fontsize_body,
+                    :black,
+                    :center,
+                    :center
+                )
+            )
+        end
+    end
+
+    # Headers
+    for j in 1:ncols
+        x = (xedges[j] + xedges[j + 1]) / 2
+        y = (yedges[1] + yedges[2]) / 2
+
+        annotate!(
+            p4,
+            x,
+            y,
+            text(
+                headers[j],
+                fontsize_header,
+                :black,
+                :center,
+                :center
+            )
+        )
+    end
+    
+
+p_combined = plot(
+    pmism_inst,
+    pmisp_inst,
+    p4,
+    layout = @layout([
+        a b
+        d{0.50h}
+    ]),
+    size = (1200, 800),
+    margin = 6mm,
+    bottom_margin = 8mm,
+    left_margin = 8mm,
+    tickfontsize = 7,
+    guidefontsize = 9,
+    titlefontsize = 10
+)
+
+display(p_combined)
+    
+end
+
+plot_bssfp_fit_fig2_v2()
 
 ##
 #=
@@ -1191,3 +1424,235 @@ function plot_bssfp_finite_rf_sp_data_fits(args::Tuple)
 end
 
 pc = plot_bssfp_finite_rf_sp_data_fits(args2_sim)
+
+## different from above: add tables to the right (model match vs model mismatch)
+
+# helper functions
+
+function fmt_table_cell(x; sigdigits=3)
+    if x isa AbstractFloat
+        if isnan(x)
+            return "N/A"
+        elseif isinf(x)
+            return string(x)
+        elseif abs(x) >= 1e4 || 0 < abs(x) < 1e-3
+            return @sprintf("%.2e", x)
+        else
+            return string(round(x; sigdigits=sigdigits))
+        end
+    elseif x isa Integer
+        return string(x)
+    else
+        return string(x)
+    end
+end
+
+function table_subplot(table1; title="", fontsize_header=8, fontsize_body=8)
+    headers = replace.(string.(table1[1, :]), "_" => " ")
+    body = table1[2:end, :]
+    nrows, ncols = size(body)
+
+    # Table location in normalized subplot coordinates
+    left   = 0.02
+    right  = 0.98
+    top    = 0.92
+    bottom = 0.08
+
+    # Make first column wider
+    col_weights = ones(ncols)
+    col_weights[1] = 1.45
+    col_widths = (right - left) .* col_weights ./ sum(col_weights)
+    xedges = vcat(left, left .+ cumsum(col_widths))
+
+    total_rows = nrows + 1
+    row_height = (top - bottom) / total_rows
+    yedges = top .- (0:total_rows) .* row_height
+
+    p = plot(
+        xlims=(0, 1),
+        ylims=(0, 1),
+        framestyle=:none,
+        grid=false,
+        legend=false,
+        ticks=false,
+        title=title
+    )
+
+    # Draw cell backgrounds and borders
+    for i in 1:total_rows
+        ytop = yedges[i]
+        ybottom = yedges[i + 1]
+
+        row_color =
+            i == 1    ? RGB(0.88, 0.88, 0.88) :
+            iseven(i) ? RGB(0.97, 0.97, 0.97) :
+                        RGB(1.0, 1.0, 1.0)
+
+        for j in 1:ncols
+            xleft = xedges[j]
+            xright = xedges[j + 1]
+
+            plot!(
+                p,
+                Shape(
+                    [xleft, xright, xright, xleft],
+                    [ybottom, ybottom, ytop, ytop]
+                ),
+                fillcolor=row_color,
+                linecolor=:black,
+                linewidth=0.75,
+                label=false
+            )
+        end
+    end
+
+    # Left padding proportional to each column width
+    xposition(j) =
+        xedges[j] + 0.04 * (xedges[j + 1] - xedges[j])
+
+    # Body
+    for i in 1:nrows
+        y = (yedges[i + 1] + yedges[i + 2]) / 2
+
+        for j in 1:ncols
+            # Horizontal center of the cell
+            x = (xedges[j] + xedges[j + 1]) / 2
+
+            cell_text = fmt_table_cell(body[i, j]; sigdigits=3)
+            if j == 1
+                cell_text = replace(cell_text, "_" => " ")
+            end
+
+            annotate!(
+                p,
+                x,
+                y,
+                text(
+                    cell_text,
+                    fontsize_body,
+                    :black,
+                    :center,
+                    :center
+                )
+            )
+        end
+    end
+
+    # Headers
+    for j in 1:ncols
+        x = (xedges[j] + xedges[j + 1]) / 2
+        y = (yedges[1] + yedges[2]) / 2
+
+        annotate!(
+            p,
+            x,
+            y,
+            text(
+                headers[j],
+                fontsize_header,
+                :black,
+                :center,
+                :center
+            )
+        )
+    end
+
+    return p
+end
+
+function plot_bssfp_finite_rf_sp_data_fits_fig3(args::Tuple)
+
+    # set some initializations
+    num_PCFs = length(Δϕ_rads)
+    num_flips = length(α_rads)
+    # color = (1:length(α_degs))'
+    color = [:green :red :blue]
+    xaxis = ("Phase Cycling Increment Δϕ (rad)", (-π, π), ((-1:1).*π, ["-π", "0", "π"]))
+    Δϕ_plot = range(-1, 1, 61) * π # fine phase-cycling factors for plot
+
+    # raw (simulated) data
+    ymat = reshape(yb, num_PCFs, num_flips)
+    label_raw = reshape(map(x -> "$(x)° ideal simulated data", α_degs), 1, :)
+
+    # fit with model mismatch (inst RF)
+    signal_c0_fit_complex = signal2_c0(xr0_init_truth)
+    @show size(signal_c0_fit_complex)
+    signal_c0_fit_complex_fine = Base.Fix{1}(_bssfp0, xr0_init_truth).(Δϕ_plot, α_rads')
+    label_fit = reshape(map(x -> "$(x)° fit points", α_degs), 1, :)
+    label_fit_fine = reshape(map(x -> "$(x)° fit", α_degs), 1, :)
+
+    # fit without model mismatch (finite RF/slice profile effects)
+    signal_c1_fit_complex = signal2_c1(xr1_init_truth, args...)
+    @show size(signal_c1_fit_complex)
+    f = (Δϕ, α) -> _bssfp1(xr1_init_truth, Δϕ, α, args...)
+    signal_c1_fit_complex_fine = f.(Δϕ_plot, α_rads')
+
+    # magnitude (inst RF)
+    pmism_inst = plot( ; xaxis, ylabel = "Signal Magnitude",widen = true,
+     title = "(a) Simulated Data with SP Effects: Fit with Inst RF", legend=:none)
+    scatter!(Δϕ_rads, abs.(ymat); label=label_raw, markersize=3, color) # raw noiseless simulated data
+    scatter!(Δϕ_rads, abs.(signal_c0_fit_complex); label=label_fit, markershape=:x,markersize=3,
+     markerstrokewidth=1, color) # fitted points
+    plot!(Δϕ_plot, abs.(signal_c0_fit_complex_fine); label=label_fit_fine, color) # finer fit
+
+    # phase (inst RF)
+    pmisp_inst = plot( ; xaxis, widen = true, ylabel = "Signal Phase (rad)",legend=:none)
+    scatter!(Δϕ_rads, angle.(ymat); label=label_raw, markersize=3, color)
+    scatter!(Δϕ_rads, angle.(signal_c0_fit_complex); label=label_fit, markershape=:x,markersize=3, markerstrokewidth=1, color)
+    plot!(Δϕ_plot, angle.(signal_c0_fit_complex_fine); label=label_fit_fine, color)
+
+    # magnitude (finite RF/SP effects)
+    pmism_sp = plot( ; xaxis, ylabel = "Signal Magnitude",widen = true,
+     title = "(b) Simulated Data with SP Effects: Fit with SP Effects", legend=:none)
+    scatter!(Δϕ_rads, abs.(ymat); label=label_raw, markersize=3, color) # raw simulated data
+    scatter!(Δϕ_rads, abs.(signal_c1_fit_complex); label=label_fit, markershape=:x,markersize=3,
+     markerstrokewidth=1, color) # fitted points
+    plot!(Δϕ_plot, abs.(signal_c1_fit_complex_fine); label=label_fit_fine, color) # finer fit
+
+    # phase (finite RF/SP effects)
+    pmisp_sp = plot( ; xaxis, widen = true, ylabel = "Signal Phase (rad)",legend=:bottomright)
+    scatter!(Δϕ_rads, angle.(ymat); label=label_raw, markersize=3, color)
+    scatter!(Δϕ_rads, angle.(signal_c1_fit_complex); label=label_fit, markershape=:x,markersize=3, markerstrokewidth=1, color)
+    plot!(Δϕ_plot, angle.(signal_c1_fit_complex_fine); label=label_fit_fine, color)
+
+    ptable_inst = table_subplot(
+    tab2_0_init_truth_larger;
+    title="(c) Parameter Estimates: Inst RF Fit",
+    fontsize_header=7,
+    fontsize_body=8
+)
+
+    ptable_sp = table_subplot(
+    tab2_1_init_truth_larger;
+    title="(d) Parameter Estimates: SP Effects Fit",
+    fontsize_header=7,
+    fontsize_body=8
+)
+
+    # put all the plots on 1 grid
+    p_combined = plot(
+    pmism_inst,
+    pmism_sp,
+    pmisp_inst,
+    pmisp_sp,
+    ptable_inst,
+    ptable_sp,
+    layout=@layout([
+        a b
+        c d
+        e{0.32h} f{0.32h}
+    ]),
+    size=(1400, 1200),
+    margin=6mm,
+    left_margin=10mm,
+    bottom_margin=10mm,
+    top_margin=8mm,
+    tickfontsize=7,
+    guidefontsize=9,
+    titlefontsize=10
+)
+
+return p_combined
+end
+
+pc = plot_bssfp_finite_rf_sp_data_fits_fig3(args2_sim)
