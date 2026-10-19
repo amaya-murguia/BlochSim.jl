@@ -46,10 +46,11 @@ using MIRTjim: prompt
 using MRIPulses: dzrf
 using Plots: default, gui
 using Plots: plot, plot!, scatter!, scatter3d!, text
-using Plots: @layout
+using Plots: @layout, annotate!, text
 using Plots.PlotMeasures: mm
 using Random: seed!
 using Measures: mm
+using Printf: @sprintf
 
 default(titlefontsize = 10, markerstrokecolor = :auto, label="", linewidth = 2)
 seed!(0);
@@ -916,6 +917,7 @@ tab2_1_init_truth = [ # estimation results table, slice profile/finite RF
 ## use data generated with inst rf (yb_inst)
 # this version does not have model mismatch
 # right now I'm doing it for the 3 flips and 8 PCFs, maybe add more in the future?
+# change this to do parallel processing!!
 ntry = 20 # 20 random starts
 if !@isdefined(xr0_all_inst_rf) || false
     nrep = 30 # 30 noise trials
@@ -924,17 +926,25 @@ if !@isdefined(xr0_all_inst_rf) || false
     std0 = std2(xr0_all_inst_rf)
 end;
 
+cv0_emp = std0./mean0
+cv0_crb = crb0./collect(xt)
+
 ## create the table to add to the plot
-# add the CV to this table!
+# add the CVs to this table (empirical and CRB)
 tab2_0_all_inst_rf = [ # estimation results table
- :param :value :μ1 :σ1 :σcrb1;
- collect(keys(xt)) collect(xt) round2.([mean1 std1 crb1_sim]);
+ :Param_Name :True_Param_Value :Empirical_Mean :Empirical_SD :CRB_SD;
+ collect(keys(xt)) collect(xt) round2.([mean0 std0 crb0]);
 ]
+
+# tab2_0_all_inst_rf = [ # estimation results table
+#  :Param_Name :True_Param_Value :Empirical_Mean :Empirical_SD :Empirical_CV :CRB_SD :CRB_CV;
+#  collect(keys(xt)) collect(xt) round2.([mean0 std0 cv0_emp crb0 cv0_crb]);
+# ]
 
 ##
 function plot_bssfp_fit_fig2()
 
-    color = [:green, :red, :blue]
+    color = [:green :red :blue]
 
     # set some initializations
     num_PCFs = length(Δϕ_rads)
@@ -947,7 +957,7 @@ function plot_bssfp_fit_fig2()
     label_raw = reshape(map(x -> "$(x)° ideal noiseless simulated data", α_degs), 1, :)
 
     # (inst RF)
-    signal_c0_fit_complex = signal2_c0(xr0_all_inst_rf)
+    signal_c0_fit_complex = signal2_c0(xr0) #signal2_c0(xr0_all_inst_rf)
     @show size(signal_c0_fit_complex)
     signal_c0_fit_complex_fine = Base.Fix{1}(_bssfp0, xr0_init_truth).(Δϕ_plot, α_rads')
     label_fit = reshape(map(x -> "$(x)° fit points", α_degs), 1, :)
@@ -957,20 +967,20 @@ function plot_bssfp_fit_fig2()
 
     # magnitude (inst RF)
     pmism_inst = plot( ; xaxis, ylabel = "Signal Magnitude",widen = true,
-     title = "(a) Simulated Data with SP Effects: Fit with Inst RF", legend=:none)
+     title = "(a) Signal Magnitude vs. Phase Cycling Factor Δθ", legend=:none)
     scatter!(Δϕ_rads, abs.(ymat); label=label_raw, markersize=6, color) # raw noiseless simulated data
     scatter!(Δϕ_rads, abs.(signal_c0_fit_complex); label=label_fit, markershape=:x,markersize=4,
      markerstrokewidth=1, color) # fitted points
     plot!(Δϕ_plot, abs.(signal_c0_fit_complex_fine); label=label_fit_fine, color) # finer fit
 
     # phase (inst RF)
-    pmisp_inst = plot( ; xaxis, widen = true, ylabel = "Signal Phase (rad)",legend=:none)
+    pmisp_inst = plot( ; xaxis, widen = true, ylabel = "Signal Phase (rad)",legend=:none, title = "(b) Signal Phase vs. Phase Cycling Factor Δθ")
     scatter!(Δϕ_rads, angle.(ymat); label=label_raw, markersize=6, color)
     scatter!(Δϕ_rads, angle.(signal_c0_fit_complex); label=label_fit, markershape=:x,markersize=4, markerstrokewidth=1, color)
     plot!(Δϕ_plot, angle.(signal_c0_fit_complex_fine); label=label_fit_fine, color)
 
     # imaginary vs. real signal
-    pmisri_inst = plot( ; xaxis, widen = true, ylabel = "Signal Phase (rad)",legend=:none)
+    pmisri_inst = plot( ; xaxis, widen = true, ylabel = "Signal Phase (rad)",legend=:none, title = "(c) Imag(Signal) vs. Real(Signal)")
     scatter!(real.(ymat), imag.(ymat); label=label_raw, markersize=6, color)
     scatter!(real.(signal_c0_fit_complex), imag.(signal_c0_fit_complex); label=label_fit, markershape=:x,markersize=4, markerstrokewidth=1, color)
     plot!(real.(signal_c0_fit_complex_fine), imag.(signal_c0_fit_complex_fine); label=label_fit_fine, color)
@@ -998,7 +1008,7 @@ function plot_bssfp_fit_fig2()
     end
 
     # set table1
-    table1 = 
+    table1 = tab2_0_all_inst_rf
 
     # Extract header/body from table1
     headers = replace.(string.(table1[1, :]), "_" => " ")
@@ -1020,7 +1030,9 @@ function plot_bssfp_fit_fig2()
 
     # Fixed column locations.
     # Adjust these if you want more/less spacing.
-    xcols = [0.03, 0.38, 0.58, 0.76, 0.94]
+    # xcols = [0.03, 0.38, 0.58, 0.76, 0.94]
+    xcols = [0.02, 0.32, 0.55, 0.76, 0.98]
+
 
     # Header alignment and body alignment
     # First column left-aligned, numeric columns right-aligned
@@ -1039,7 +1051,7 @@ function plot_bssfp_fit_fig2()
             p4,
             xcols[j],
             y_header,
-            Plots.text(headers[j], fontsize_header, :black, haligns[j])
+            text(headers[j], fontsize_header, :black, haligns[j])
         )
     end
 
@@ -1064,30 +1076,49 @@ function plot_bssfp_fit_fig2()
                 p4,
                 xcols[j],
                 y,
-                Plots.text(cell_text, fontsize_body, :black, haligns[j])
+                text(cell_text, fontsize_body, :black, haligns[j])
             )
         end
     end
 
     # put all the plots on 1 grid
-    p_combined = plot(
-        pmism_inst,
-        pmisp_inst,
-        pmisri_inst,
-        p4,
-        layout = @layout([a b; c d]),
-        size = (1200, 800),
-        margin = 6mm,
-        bottom_margin = 8mm,
-        left_margin = 8mm,
-        tickfontsize = 7,
-        guidefontsize = 9,
-        titlefontsize = 10
+#     p_combined = plot(
+#         pmism_inst,
+#         pmisp_inst,
+#         pmisri_inst,
+#         p4,
+#         layout = @layout([a b; c d]),
+#         size = (1200, 800),
+#         margin = 6mm,
+#         bottom_margin = 8mm,
+#         left_margin = 8mm,
+#         tickfontsize = 7,
+#         guidefontsize = 9,
+#         titlefontsize = 10
+# )
+
+p_combined = plot(
+    pmism_inst,
+    pmisp_inst,
+    p4,
+    layout = @layout([
+        a b
+        d{0.50h}
+    ]),
+    size = (1200, 800),
+    margin = 6mm,
+    bottom_margin = 8mm,
+    left_margin = 8mm,
+    tickfontsize = 7,
+    guidefontsize = 9,
+    titlefontsize = 10
 )
 
 display(p_combined)
     
 end
+
+plot_bssfp_fit_fig2()
 
 ##
 #=
