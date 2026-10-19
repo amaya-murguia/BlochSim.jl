@@ -315,6 +315,11 @@ yb = reshape(yb, :, 2); yb = complex.(yb[:,1], yb[:,2]); # re-make complex!
 #y1 = yb + 1σ * randn(ComplexF64, size(yb));
 #src @show 20*log10(norm(yb) / norm(y1 - yb))
 
+# make a yb where have inst RF
+yb_inst = signal2_ri1(x)
+yb_inst = reshape(yb_inst, :, 2); yb_inst = complex.(yb_inst[:,1], yb_inst[:,2]); # re-make complex!
+σ = snr2sigma(snr_db, yb_inst)
+
 #=
 ### Slice profile effects on bSSFP
 # The points show the noiseless data values that form the starting point 
@@ -801,6 +806,7 @@ end
 
 # edited version of the above function that uses the form of
 # fit_signal that takes in an array instead of a function
+# it is used to initialize with the truth
 function do_fit_truth(signal_ri::Function, i::Int, yb, σ::Real)
     seed!(i)
     y = yb + σ * randn(ComplexF64, size(yb))
@@ -907,6 +913,183 @@ tab2_1_init_truth = [ # estimation results table, slice profile/finite RF
  collect(keys(xt)) collect(xt) round2.([mean1_init_truth std1_init_truth crb1_sim]);
 ]
 
+## use data generated with inst rf (yb_inst)
+# this version does not have model mismatch
+# right now I'm doing it for the 3 flips and 8 PCFs, maybe add more in the future?
+ntry = 20 # 20 random starts
+if !@isdefined(xr0_all_inst_rf) || false
+    nrep = 30 # 30 noise trials
+    @time xr0_all_inst_rf = stack([do_fit(signal2_ri0, i, yb_inst, σ) for i in 1:nrep])
+    mean0 = mean2(xr0_all_inst_rf)
+    std0 = std2(xr0_all_inst_rf)
+end;
+
+## create the table to add to the plot
+# add the CV to this table!
+tab2_0_all_inst_rf = [ # estimation results table
+ :param :value :μ1 :σ1 :σcrb1;
+ collect(keys(xt)) collect(xt) round2.([mean1 std1 crb1_sim]);
+]
+
+##
+function plot_bssfp_fit_fig2()
+
+    color = [:green, :red, :blue]
+
+    # set some initializations
+    num_PCFs = length(Δϕ_rads)
+    num_flips = length(α_rads)
+    xaxis = ("Phase Cycling Increment Δϕ (rad)", (-π, π), ((-1:1).*π, ["-π", "0", "π"]))
+    Δϕ_plot = range(-1, 1, 61) * π # fine phase-cycling factors for plot
+
+    # raw (simulated) inst RF data
+    ymat = reshape(yb_inst, num_PCFs, num_flips)
+    label_raw = reshape(map(x -> "$(x)° ideal noiseless simulated data", α_degs), 1, :)
+
+    # (inst RF)
+    signal_c0_fit_complex = signal2_c0(xr0_all_inst_rf)
+    @show size(signal_c0_fit_complex)
+    signal_c0_fit_complex_fine = Base.Fix{1}(_bssfp0, xr0_init_truth).(Δϕ_plot, α_rads')
+    label_fit = reshape(map(x -> "$(x)° fit points", α_degs), 1, :)
+    label_fit_fine = reshape(map(x -> "$(x)° fit", α_degs), 1, :)
+
+
+
+    # magnitude (inst RF)
+    pmism_inst = plot( ; xaxis, ylabel = "Signal Magnitude",widen = true,
+     title = "(a) Simulated Data with SP Effects: Fit with Inst RF", legend=:none)
+    scatter!(Δϕ_rads, abs.(ymat); label=label_raw, markersize=6, color) # raw noiseless simulated data
+    scatter!(Δϕ_rads, abs.(signal_c0_fit_complex); label=label_fit, markershape=:x,markersize=4,
+     markerstrokewidth=1, color) # fitted points
+    plot!(Δϕ_plot, abs.(signal_c0_fit_complex_fine); label=label_fit_fine, color) # finer fit
+
+    # phase (inst RF)
+    pmisp_inst = plot( ; xaxis, widen = true, ylabel = "Signal Phase (rad)",legend=:none)
+    scatter!(Δϕ_rads, angle.(ymat); label=label_raw, markersize=6, color)
+    scatter!(Δϕ_rads, angle.(signal_c0_fit_complex); label=label_fit, markershape=:x,markersize=4, markerstrokewidth=1, color)
+    plot!(Δϕ_plot, angle.(signal_c0_fit_complex_fine); label=label_fit_fine, color)
+
+    # imaginary vs. real signal
+    pmisri_inst = plot( ; xaxis, widen = true, ylabel = "Signal Phase (rad)",legend=:none)
+    scatter!(real.(ymat), imag.(ymat); label=label_raw, markersize=6, color)
+    scatter!(real.(signal_c0_fit_complex), imag.(signal_c0_fit_complex); label=label_fit, markershape=:x,markersize=4, markerstrokewidth=1, color)
+    plot!(real.(signal_c0_fit_complex_fine), imag.(signal_c0_fit_complex_fine); label=label_fit_fine, color)
+
+    # ============================================================
+    # Subplot 4: table1 as aligned cell annotations
+    # ============================================================
+
+    function fmt_table_cell(x; sigdigits=3)
+        if x isa AbstractFloat
+            if isnan(x)
+                return "N/A"
+            elseif isinf(x)
+                return string(x)
+            elseif abs(x) >= 1e4 || 0 < abs(x) < 1e-3
+                return @sprintf("%.2e", x)
+            else
+                return string(round(x; sigdigits=sigdigits))
+            end
+        elseif x isa Integer
+            return string(x)
+        else
+            return string(x)
+        end
+    end
+
+    # set table1
+    table1 = 
+
+    # Extract header/body from table1
+    headers = replace.(string.(table1[1, :]), "_" => " ")
+    body = table1[2:end, :]
+
+    nrows = size(body, 1)
+    ncols = size(table1, 2)
+
+    # Blank plot that will hold the table
+    p4 = plot(
+        xlims = (0, 1),
+        ylims = (0, 1),
+        framestyle = :none,
+        grid = false,
+        legend = false,
+        ticks = false,
+        title = "(d) Parameter Estimates"
+    )
+
+    # Fixed column locations.
+    # Adjust these if you want more/less spacing.
+    xcols = [0.03, 0.38, 0.58, 0.76, 0.94]
+
+    # Header alignment and body alignment
+    # First column left-aligned, numeric columns right-aligned
+    haligns = [:left, :right, :right, :right, :right]
+
+    fontsize_header = 12
+    fontsize_body = 12
+
+    # Vertical placement
+    y_header = 0.90
+    dy = min(0.065, 0.78 / max(nrows, 1))
+
+    # Add headers
+    for j in 1:ncols
+        annotate!(
+            p4,
+            xcols[j],
+            y_header,
+            Plots.text(headers[j], fontsize_header, :black, haligns[j])
+        )
+    end
+
+    # Add a separator line under the header
+    plot!(
+        p4,
+        [0.02, 0.98],
+        [y_header - 0.035, y_header - 0.035],
+        color = :black,
+        linewidth = 1,
+        label = false
+    )
+
+    # Add table body
+    for i in 1:nrows
+        y = y_header - 0.06 - (i - 1) * dy
+
+        for j in 1:ncols
+            cell_text = fmt_table_cell(body[i, j]; sigdigits=3)
+
+            annotate!(
+                p4,
+                xcols[j],
+                y,
+                Plots.text(cell_text, fontsize_body, :black, haligns[j])
+            )
+        end
+    end
+
+    # put all the plots on 1 grid
+    p_combined = plot(
+        pmism_inst,
+        pmisp_inst,
+        pmisri_inst,
+        p4,
+        layout = @layout([a b; c d]),
+        size = (1200, 800),
+        margin = 6mm,
+        bottom_margin = 8mm,
+        left_margin = 8mm,
+        tickfontsize = 7,
+        guidefontsize = 9,
+        titlefontsize = 10
+)
+
+display(p_combined)
+    
+end
+
+##
 #=
 ### Plot simulated data and fits with/without slice profile/finite RF effects
 =#
