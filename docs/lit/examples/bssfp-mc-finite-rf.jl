@@ -255,7 +255,7 @@ design_20 = Iterators.product(Δϕ_rads_20, α_rads_20)
 # src: todo: currently must allocate because InstantaneousRF is immutable
 # src: this bssfp version takes in a SpinMC object
 function _bssfp0(x, Δϕ_rad, α_rad)
-    one_spin = make_mc_spins(x[1:9]..., 0)
+    one_spin = make_mc_spins(x[1:9]..., 0) # this does make 1 spin (maybe should change function name)
     return bssfp(one_spin, TR_ms, TE_ms, Δϕ_rad, InstantaneousRF(x[10] * α_rad));
 end
 
