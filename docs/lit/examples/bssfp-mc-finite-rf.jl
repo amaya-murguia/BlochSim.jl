@@ -910,6 +910,7 @@ tab2_0_init_truth_larger = [ # estimation results table
 ]
 
 # Fit with slice profile, finite RF effects (much slower, so use course z sampling)
+# for 10 random starts, 3 reps this ran for about 9 hours
 if !@isdefined(xr1)
     nrep = 3
     xr1_list = Vector{Any}(undef, nrep)
