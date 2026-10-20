@@ -52,9 +52,12 @@ using Random: seed!
 using Measures: mm
 using Printf: @sprintf
 using Colors: RGB
+using JLD: load, @save
 
 default(titlefontsize = 10, markerstrokecolor = :auto, label="", linewidth = 2)
 seed!(0);
+logocolors = Colors.JULIA_LOGO_COLORS
+
 
 # The following line is helpful when running this file as a script;
 # this way it will prompt user to hit a key after each figure is displayed.
@@ -242,6 +245,11 @@ with various phase-cycling increments and flip angles:
 design = Iterators.product(Δϕ_rads, α_rads)
 num_scans = length(design) # number of different scans
 
+# different design
+Δϕ_rads_20 = (1:20)/20 * 2π .- π # phase-cycling factors
+α_degs_20 = [10, 20, 30, 40, 50, 60] # flip angles
+α_rads_20 = deg2rad.(α_degs_20)
+design_20 = Iterators.product(Δϕ_rads_20, α_rads_20)
 
 # Helper for `InstantaneousRF` bSSFP signal model
 # src: todo: currently must allocate because InstantaneousRF is immutable
@@ -274,6 +282,11 @@ function signal2_c0(x) # signal model for `InstantaneousRF` 2-pool bSSFP signal 
     return map(splat(_bssfp), design)
 end
 
+function signal2_c0_20(x) # signal model for `InstantaneousRF` 2-pool bSSFP signal model
+    _bssfp(Δϕ_rad, α_rad) = _bssfp0(x, Δϕ_rad, α_rad) # defines another helper function
+    return map(splat(_bssfp), design_20)
+end
+
 
 function signal2_c1(x, scale, rf_maker, zpos) # 2-pool signal model with slice-selective RF pulse
     _bssfp(Δϕ_rad, α_rad) = _bssfp1(x, Δϕ_rad, α_rad, scale, rf_maker, zpos) # defines another helper function
@@ -302,6 +315,7 @@ args2_fine = (scale2_fine, rf_maker2, zpos2_fine)
 Stack real and imaginary parts:
 =#
 signal2_ri0(x) = real_imag(vec(signal2_c0(x)))
+signal2_ri0_20(x) = real_imag(vec(signal2_c0_20(x)))
 signal2_ri1(x; args=args2_sim) = real_imag(vec(signal2_c1(x, args...)));
 
 
@@ -318,7 +332,7 @@ yb = reshape(yb, :, 2); yb = complex.(yb[:,1], yb[:,2]); # re-make complex!
 #src @show 20*log10(norm(yb) / norm(y1 - yb))
 
 # make a yb where have inst RF
-yb_inst = signal2_ri1(x)
+yb_inst = signal2_ri0_20(x)
 yb_inst = reshape(yb_inst, :, 2); yb_inst = complex.(yb_inst[:,1], yb_inst[:,2]); # re-make complex!
 σ = snr2sigma(snr_db, yb_inst)
 
@@ -353,7 +367,7 @@ function plot_bssfp(args, yb, do_fine::Bool=false;
     labels1 = reshape(["α=$(α)°, $tRF_ms ms $rtype RF [$n1]" for α in α_degs],1, :)
     plot!(Δϕ_plot, abs.(tmp1); label=labels1, line=:dot, color)
     labels0 = reshape(["α=$(α)°, 0 ms RF" for α in α_degs],1, :)
-    plot!(Δϕ_plot, abs.(tmp0); label=labels0, line=:dash, color)
+    plot!(Δϕ_plot, abs.(tmp0); label=labels0, line=:dashdot, color)
     data_labels = reshape(["α=$(α)° noiseless data from $tRF_ms ms $rtype RF [$n2]" for α in α_degs],1, :)
     scatter!(Δϕ_rads, abs.(reshape(yb, length(Δϕ_rads), :)); label=data_labels, color)
     
@@ -371,9 +385,9 @@ function plot_bssfp(args, yb, do_fine::Bool=false;
     @show angle.(tmp0[:,3])
     # not the same this time!! should they be???
     # @assert angle.(tmp0[:,1]) ≈ angle.(tmp0[:,2]) ≈ angle.(tmp0[:,3]) # same!
-    # plot!(Δϕ_plot, angle.(tmp0[:,1]); line=:dash, label=labels0)
-    plot!(Δϕ_plot, angle.(tmp0); line=:dash, label=labels0, color)
-    # plot!(Δϕ_plot, angle.(tmp0[:,1]); label="0 ms RF", line=:dash, color=:black)
+    # plot!(Δϕ_plot, angle.(tmp0[:,1]); line=:dashdot, label=labels0)
+    plot!(Δϕ_plot, angle.(tmp0); line=:dashdot, label=labels0, color)
+    # plot!(Δϕ_plot, angle.(tmp0[:,1]); label="0 ms RF", line=:dashdot, color=:black)
     scatter!(Δϕ_rads, angle.(reshape(yb, length(Δϕ_rads), :)); color, label=data_labels)
 
     return plot(pmism, pmisa, layout=(2,1), size=(1200, 800),
@@ -410,7 +424,7 @@ function plot_bssfp_fig1(args, yb, do_fine::Bool=false;
         framestyle = :none,
         axis = false,
         grid = false,
-        legend = :left,
+        legend = :left, legendfontsize = 20,
     )
 
     # Blank cell below the shared right-side legend
@@ -425,9 +439,9 @@ function plot_bssfp_fig1(args, yb, do_fine::Bool=false;
     # First vary the fast fraction and the exchange rate and plot results
 
     Δϕ_plot = range(-1, 1, 61) * π # phase-cycling factors for plot
-    ff_colors = [4 5 6]
-    exchange_colors = [4 5 6]
-    color = [1 2 3]
+    ff_colors = [1 2 3]
+    exchange_colors = [1 2 3]
+    color = [logocolors.green logocolors.purple logocolors.red]
     xaxis = ("Phase Cycling Increment Δθ (rad)", (-π, π), ((-1:1).*π, ["-π", "0", "π"]))
 
 
@@ -458,7 +472,7 @@ function plot_bssfp_fig1(args, yb, do_fine::Bool=false;
     # Magnitude plot - 3 different fast fractions
     p11 = plot(;
         xaxis,
-        widen = true,
+        widen = true, legendfontsize = 15,
         ylabel = "Signal Magnitude",
         title = "(a) Instantaneous RF: Vary Fast Fraction",
         legend = :bottomright, top_plot_margins...,
@@ -478,7 +492,7 @@ function plot_bssfp_fig1(args, yb, do_fine::Bool=false;
         Δϕ_plot,
         abs.(tmp_x5);
         color = ff_colors,
-        line = :dash,
+        line = :dashdot,
         label = false,
     )
 
@@ -513,7 +527,7 @@ function plot_bssfp_fig1(args, yb, do_fine::Bool=false;
         Δϕ_plot,
         angle.(tmp_x5);
         color = ff_colors,
-        line = :dash,
+        line = :dashdot,
         label = false,
     )
 
@@ -540,26 +554,26 @@ end
     plot!(p11, [NaN], [NaN];
         color = :black,
         line = :solid,
-        label = "fast fraction 0.10",
+        label = "ff 0.10",
     )
 
     plot!(p11, [NaN], [NaN];
         color = :black,
-        line = :dash,
-        label = "fast fraction 0.20",
+        line = :dashdot,
+        label = "ff 0.20",
     )
 
     plot!(p11, [NaN], [NaN];
         color = :black,
         line = :dot,
-        label = "fast fraction 0.30",
+        label = "ff 0.30",
     )
 
     # Magnitude plot -3 different exchange rates
     p12 = plot(;
         xaxis,
         ylims,
-        widen = true,
+        widen = true, legendfontsize = 15,
         title = "(b) Instantaneous RF: Vary Mean Residence Time",
         legend = :bottomright, top_plot_margins...,
     )
@@ -578,7 +592,7 @@ end
         Δϕ_plot,
         abs.(tmp_x2);
         color = exchange_colors,
-        line = :dash,
+        line = :dashdot,
         label = false,
     )
 
@@ -612,7 +626,7 @@ end
         Δϕ_plot,
         angle.(tmp_x2);
         color = exchange_colors,
-        line = :dash,
+        line = :dashdot,
         label = false,
     )
 
@@ -645,7 +659,7 @@ end
 
     plot!(p12, [NaN], [NaN];
         color = :black,
-        line = :dash,
+        line = :dashdot,
         label = "MRT 100 ms",
     )
 
@@ -672,9 +686,9 @@ end
     labels1 = reshape(["α=$(α)°, $tRF_ms ms $rtype RF [$n1]" for α in α_degs],1, :)
     plot!(Δϕ_plot, abs.(tmp1); label=labels1, line=:dot, color)
     labels0 = reshape(["α=$(α)°, 0 ms RF" for α in α_degs],1, :)
-    plot!(Δϕ_plot, abs.(tmp0); label=labels0, line=:dash, color)
-    data_labels = reshape(["α=$(α)° noiseless data from $tRF_ms ms $rtype RF [$n2]" for α in α_degs],1, :)
-    scatter!(Δϕ_rads, abs.(reshape(yb, length(Δϕ_rads), :)); label=data_labels, color)
+    plot!(Δϕ_plot, abs.(tmp0); label=labels0, line=:dashdot, color)
+    # data_labels = reshape(["α=$(α)° noiseless data from $tRF_ms ms $rtype RF [$n2]" for α in α_degs],1, :)
+    # scatter!(Δϕ_rads, abs.(reshape(yb, length(Δϕ_rads), :)); label=data_labels, color)
     
     # Phase (fairly small effect of slice-selective excitation):
     # src fix the labels on here later!!!
@@ -689,36 +703,36 @@ end
     @show angle.(tmp0[:,3])
     # not the same this time!! should they be???
     # @assert angle.(tmp0[:,1]) ≈ angle.(tmp0[:,2]) ≈ angle.(tmp0[:,3]) # same!
-    # plot!(Δϕ_plot, angle.(tmp0[:,1]); line=:dash, label=labels0)
-    plot!(Δϕ_plot, angle.(tmp0); line=:dash, label=labels0, color)
+    # plot!(Δϕ_plot, angle.(tmp0[:,1]); line=:dashdot label=labels0)
+    plot!(Δϕ_plot, angle.(tmp0); line=:dashdot, label=labels0, color)
     # plot!(Δϕ_plot, angle.(tmp0[:,1]); label="0 ms RF", line=:dash, color=:black)
-    scatter!(Δϕ_rads, angle.(reshape(yb, length(Δϕ_rads), :)); color, label=data_labels)
+    # scatter!(Δϕ_rads, angle.(reshape(yb, length(Δϕ_rads), :)); color, label=data_labels)
 
 
     for (i, α) in enumerate(α_degs)
         if do_fine
             plot!(plegend_rf, [NaN], [NaN];
                 label = "α=$(α)°, $tRF_ms ms $rtype RF [$n2]",
-                color = i,
+                color = color[i],
             )
         end
 
         plot!(plegend_rf, [NaN], [NaN];
             label = "α=$(α)°, $tRF_ms ms $rtype RF [$n1]",
-            color = i,
+            color = color[i],
             line = :dot,
         )
 
         plot!(plegend_rf, [NaN], [NaN];
             label = "α=$(α)°, 0 ms RF",
-            color = i,
-            line = :dash,
+            color = color[i],
+            line = :dashdot,
         )
 
-        scatter!(plegend_rf, [NaN], [NaN];
-            label = "α=$(α)° noiseless data from $tRF_ms ms $rtype RF [$n2]",
-            color = i,
-        )
+        # scatter!(plegend_rf, [NaN], [NaN];
+        #     label = "α=$(α)° noiseless data from $tRF_ms ms $rtype RF [$n2]",
+        #     color = i+3,
+        # )
     end
 
     layout = grid(
@@ -758,6 +772,11 @@ return plot(
 
     layout = layout,
     size = (3000, 1200),
+
+    # Font sizes in points
+    titlefontsize = 22,
+    guidefontsize = 18,       # x-axis and y-axis labels
+    tickfontsize = 17,
 )
 
 end
@@ -803,7 +822,7 @@ function do_fit(signal_ri::Function, i::Int, yb, σ::Real)
         ntry,
         lower,
         upper,
-    )
+    ), y
 end
 
 # edited version of the above function that uses the form of
@@ -820,7 +839,7 @@ function do_fit_truth(signal_ri::Function, i::Int, yb, σ::Real)
         ntry,
         lower,
         upper,
-    )
+    ), y
 end
 
 #=
@@ -843,6 +862,7 @@ std2(x) = sqrt.(sum(abs2, x .- mean2(x), dims=2)[:,1] / nrep)
 # error("pause here")
 
 crb0 = sqrt.(diag(crb(signal2_ri0, x, σ))) # crb for model with inst rf
+crb0_20 = sqrt.(diag(crb(signal2_ri0_20, x, σ)))
 crb1_sim = sqrt.(diag(crb(signal2_ri1, x, σ))) # crb for coarse grid, finite rf
 crb1_fine = sqrt.(diag(crb(x -> signal2_ri1(x; args=args2_fine), x, σ))) # crb for fine grid, finite rf
 tab_crb = [:param :value :σcrb0 :σcrb1_sim :σcrb1_fine;
@@ -854,21 +874,25 @@ collect(keys(xt)) collect(xt) round2.([crb0 crb1_sim crb1_fine])
 # src: why is this so slow right now? is not fast!! because 2 pool I think
 if !@isdefined(xr0) || false
     nrep = 100
-    @time xr0 = stack([do_fit(signal2_ri0, i, yb, σ) for i in 1:nrep])
+    @time xr0, y_noisy0 = stack([do_fit(signal2_ri0, i, yb, σ) for i in 1:nrep])
     mean0 = mean2(xr0)
     std0 = std2(xr0)
+    cv0_emp = std0./mean0
+    cv0_crb = crb0./collect(xt)
+    @save "/home/amurguia/Documents/mwi-data/ismrm_2027_vancouver_fits/data_sp_fit_inst_init_rand.jld" xr0 #y_noisy0
 end;
-cv0_emp = std0./mean0
-cv0_crb = crb0./collect(xt)
+
 
 if !@isdefined(xr0_init_truth) || false
     nrep = 10
-    @time xr0_init_truth = stack([do_fit_truth(signal2_ri0, i, yb, σ) for i in 1:nrep])
+    @time xr0_init_truth, y_noisy0_init_truth = stack([do_fit_truth(signal2_ri0, i, yb, σ) for i in 1:nrep])
     mean0_init_truth = mean2(xr0_init_truth)
     std0_init_truth = std2(xr0_init_truth)
+    cv0_emp_init_truth = std0_init_truth./mean0_init_truth
+    cv0_crb_init_truth = crb0./collect(xt) # sane as non init truth version
+    @save "/home/amurguia/Documents/mwi-data/ismrm_2027_vancouver_fits/data_sp_fit_inst_init_truth.jld" xr0_init_truth #y_noisy0_init_truth
 end;
-cv0_emp_init_truth = std0_init_truth./mean0_init_truth
-cv0_crb = crb0./collect(xt)
+
 
 tab2_0 = [ # estimation results table, inst RF
  :param :value :μ0 :σ0 :σcrb0;
@@ -889,32 +913,40 @@ tab2_0_init_truth_larger = [ # estimation results table
 if !@isdefined(xr1)
     nrep = 3
     xr1_list = Vector{Any}(undef, nrep)
+    y_noisy1_list = Vector{Any}(undef, nrep)
     @time begin
         Threads.@threads for i in 1:nrep
-            xr1_list[i] = do_fit(signal2_ri1, i, yb, σ)
+            xr1_list[i], y_noisy1_list[i] = do_fit(signal2_ri1, i, yb, σ)
             @show i
         end
         xr1 = stack(xr1_list)
+        y_noisy1 = stack(y_noisy1_list)
     end
     mean1 = mean2(xr1)
     std1 = std2(xr1)
+    cv1_emp = std1./mean1
+    cv1_crb = crb1_sim./collect(xt)
+    @save "/home/amurguia/Documents/mwi-data/ismrm_2027_vancouver_fits/data_sp_fit_sp_init_rand.jld" xr1 y_noisy1
 end;
 
 if !@isdefined(xr1_init_truth)
     nrep = 10
     xr1_list_init_truth = Vector{Any}(undef, nrep)
+    y_noisy1_list_init_truth = Vector{Any}(undef, nrep)
     @time begin
         Threads.@threads for i in 1:nrep
-            xr1_list_init_truth[i] = do_fit_truth(signal2_ri1, i, yb, σ)
+            xr1_list_init_truth[i], y_noisy1_list_init_truth[i] = do_fit_truth(signal2_ri1, i, yb, σ)
             @show i
         end
         xr1_init_truth = stack(xr1_list_init_truth)
+        y_noisy1_init_truth = stack(y_noisy1_list_init_truth) # sane as non init truth version
     end
     mean1_init_truth = mean2(xr1_init_truth)
     std1_init_truth = std2(xr1_init_truth)
+    cv1_emp_init_truth = std1_init_truth./mean1_init_truth
+    cv1_crb_init_truth = crb1_sim./collect(xt)
+    @save "/home/amurguia/Documents/mwi-data/ismrm_2027_vancouver_fits/data_sp_fit_sp_init_truth.jld" xr1_init_truth #y_noisy1_init_truth
 end;
-cv1_emp_init_truth = std1_init_truth./mean1_init_truth
-cv1_crb = crb1_sim./collect(xt)
 
 tab2_1 = [ # estimation results table, slice profile/finite RF
  :param :value :μ1 :σ1 :σcrb1;
@@ -935,250 +967,276 @@ tab2_1_init_truth_larger = [ # estimation results table
 # this version does not have model mismatch
 # right now I'm doing it for the 3 flips and 8 PCFs, maybe add more in the future?
 # change this to do parallel processing!!
-ntry = 20 # 20 random starts
+ntry = 10 # 10 random starts
 if !@isdefined(xr0_all_inst_rf) || false
-    nrep = 30 # 30 noise trials
-    @time xr0_all_inst_rf = stack([do_fit(signal2_ri0, i, yb_inst, σ) for i in 1:nrep])
-    mean0 = mean2(xr0_all_inst_rf)
-    std0 = std2(xr0_all_inst_rf)
+    nrep = 25 # noise trials
+    xr0_list_all_inst_rf = Vector{Any}(undef, nrep)
+    y_noisy1_list_inst_rf = Vector{Any}(undef, nrep)
+    @time begin
+        Threads.@threads for i in 1:nrep
+            xr0_list_all_inst_rf[i], y_noisy1_list_inst_rf[i] = do_fit(signal2_ri0_20, i, yb_inst, σ)
+            @show i
+        end
+        xr0_all_inst_rf = stack(xr0_list_all_inst_rf)
+        y_noisy_inst_rf = stack(y_noisy1_list_inst_rf)
+    end
+    mean0_inst_rf = mean2(xr0_all_inst_rf)
+    std0_inst_rf = std2(xr0_all_inst_rf)
+    cv0_inst_rf_emp = std0_inst_rf./mean0_inst_rf
+    cv0_crb_inst_rf = crb0_20./collect(xt)
+    @save "/home/amurguia/Documents/mwi-data/ismrm_2027_vancouver_fits/data_inst_fit_inst_init_rand_more_flips_more_PCFs.jld" xr0_all_inst_rf y_noisy_inst_rf
 end;
 
-cv0_emp = std0./mean0
-cv0_crb = crb0./collect(xt)
 
-## create the table to add to the plot
-# add the CVs to this table (empirical and CRB)
-tab2_0_all_inst_rf = [ # estimation results table
- :Param_Name :True_Param_Value :Empirical_Estimated_Mean :Empirical_SD :CRB_SD;
- collect(keys(xt)) collect(xt) round2.([mean0 std0 crb0]);
-]
 
+            
+        
+
+
+# ## create the table to add to the plot
+# # add the CVs to this table (empirical and CRB)
 # tab2_0_all_inst_rf = [ # estimation results table
-#  :Param_Name :True_Param_Value :Empirical_Mean :Empirical_SD :Empirical_CV :CRB_SD :CRB_CV;
-#  collect(keys(xt)) collect(xt) round2.([mean0 std0 cv0_emp crb0 cv0_crb]);
+#  :Param_Name :True_Param_Value :Empirical_Estimated_Mean :Empirical_SD :CRB_SD;
+#  collect(keys(xt)) collect(xt) round2.([mean0 std0 crb0]);
 # ]
 
-##
-function plot_bssfp_fit_fig2_v1()
+# # tab2_0_all_inst_rf = [ # estimation results table
+# #  :Param_Name :True_Param_Value :Empirical_Mean :Empirical_SD :Empirical_CV :CRB_SD :CRB_CV;
+# #  collect(keys(xt)) collect(xt) round2.([mean0 std0 cv0_emp crb0 cv0_crb]);
+# # ]
 
-    color = [:green :red :blue]
+# ##
+# function plot_bssfp_fit_fig2_v1()
 
-    # set some initializations
-    num_PCFs = length(Δϕ_rads)
-    num_flips = length(α_rads)
-    xaxis = ("Phase Cycling Increment Δϕ (rad)", (-π, π), ((-1:1).*π, ["-π", "0", "π"]))
-    Δϕ_plot = range(-1, 1, 61) * π # fine phase-cycling factors for plot
+#     color = [:green :red :blue]
 
-    # raw (simulated) inst RF data
-    ymat = reshape(yb_inst, num_PCFs, num_flips)
-    label_raw = reshape(map(x -> "$(x)° ideal noiseless simulated data", α_degs), 1, :)
+#     # set some initializations
+#     num_PCFs = length(Δϕ_rads)
+#     num_flips = length(α_rads)
+#     xaxis = ("Phase Cycling Increment Δϕ (rad)", (-π, π), ((-1:1).*π, ["-π", "0", "π"]))
+#     Δϕ_plot = range(-1, 1, 61) * π # fine phase-cycling factors for plot
 
-    # (inst RF)
-    signal_c0_fit_complex = signal2_c0(xr0) #signal2_c0(xr0_all_inst_rf)
-    @show size(signal_c0_fit_complex)
-    signal_c0_fit_complex_fine = Base.Fix{1}(_bssfp0, xr0_init_truth).(Δϕ_plot, α_rads')
-    label_fit = reshape(map(x -> "$(x)° fit points", α_degs), 1, :)
-    label_fit_fine = reshape(map(x -> "$(x)° fit", α_degs), 1, :)
+#     # raw (simulated) inst RF data
+#     ymat = reshape(yb_inst, num_PCFs, num_flips)
+#     label_raw = reshape(map(x -> "$(x)° ideal noiseless simulated data", α_degs), 1, :)
 
-
-
-    # magnitude (inst RF)
-    pmism_inst = plot( ; xaxis, ylabel = "Signal Magnitude",widen = true,
-     title = "(a) Signal Magnitude vs. Phase Cycling Factor Δθ", legend=:none)
-    scatter!(Δϕ_rads, abs.(ymat); label=label_raw, markersize=6, color) # raw noiseless simulated data
-    scatter!(Δϕ_rads, abs.(signal_c0_fit_complex); label=label_fit, markershape=:x,markersize=4,
-     markerstrokewidth=1, color) # fitted points
-    plot!(Δϕ_plot, abs.(signal_c0_fit_complex_fine); label=label_fit_fine, color) # finer fit
-
-    # phase (inst RF)
-    pmisp_inst = plot( ; xaxis, widen = true, ylabel = "Signal Phase (rad)",legend=:none, title = "(b) Signal Phase vs. Phase Cycling Factor Δθ")
-    scatter!(Δϕ_rads, angle.(ymat); label=label_raw, markersize=6, color)
-    scatter!(Δϕ_rads, angle.(signal_c0_fit_complex); label=label_fit, markershape=:x,markersize=4, markerstrokewidth=1, color)
-    plot!(Δϕ_plot, angle.(signal_c0_fit_complex_fine); label=label_fit_fine, color)
-
-    # imaginary vs. real signal
-    pmisri_inst = plot( ; xaxis, widen = true, ylabel = "Signal Phase (rad)",legend=:none, title = "(c) Imag(Signal) vs. Real(Signal)")
-    scatter!(real.(ymat), imag.(ymat); label=label_raw, markersize=6, color)
-    scatter!(real.(signal_c0_fit_complex), imag.(signal_c0_fit_complex); label=label_fit, markershape=:x,markersize=4, markerstrokewidth=1, color)
-    plot!(real.(signal_c0_fit_complex_fine), imag.(signal_c0_fit_complex_fine); label=label_fit_fine, color)
-
-    # ============================================================
-    # Subplot 4: v1: table1 as aligned cell annotations
-    # ============================================================
-
-    function fmt_table_cell(x; sigdigits=3)
-        if x isa AbstractFloat
-            if isnan(x)
-                return "N/A"
-            elseif isinf(x)
-                return string(x)
-            elseif abs(x) >= 1e4 || 0 < abs(x) < 1e-3
-                return @sprintf("%.2e", x)
-            else
-                return string(round(x; sigdigits=sigdigits))
-            end
-        elseif x isa Integer
-            return string(x)
-        else
-            return string(x)
-        end
-    end
-
-    # set table1
-    table1 = tab2_0_all_inst_rf
-
-    # Extract header/body from table1
-    headers = replace.(string.(table1[1, :]), "_" => " ")
-    body = table1[2:end, :]
-
-    nrows = size(body, 1)
-    ncols = size(table1, 2)
-
-    # Blank plot that will hold the table
-    p4 = plot(
-        xlims = (0, 1),
-        ylims = (0, 1),
-        framestyle = :none,
-        grid = false,
-        legend = false,
-        ticks = false,
-        title = "(d) Parameter Estimates"
-    )
-
-    # Fixed column locations.
-    # Adjust these if you want more/less spacing.
-    # xcols = [0.03, 0.38, 0.58, 0.76, 0.94]
-    xcols = [0.02, 0.32, 0.55, 0.76, 0.98]
+#     # (inst RF)
+#     signal_c0_fit_complex = signal2_c0(xr0) #signal2_c0(xr0_all_inst_rf)
+#     @show size(signal_c0_fit_complex)
+#     signal_c0_fit_complex_fine = Base.Fix{1}(_bssfp0, xr0_init_truth).(Δϕ_plot, α_rads')
+#     label_fit = reshape(map(x -> "$(x)° fit points", α_degs), 1, :)
+#     label_fit_fine = reshape(map(x -> "$(x)° fit", α_degs), 1, :)
 
 
-    # Header alignment and body alignment
-    # First column left-aligned, numeric columns right-aligned
-    haligns = [:left, :right, :right, :right, :right]
 
-    fontsize_header = 12
-    fontsize_body = 12
+#     # magnitude (inst RF)
+#     pmism_inst = plot( ; xaxis, ylabel = "Signal Magnitude",widen = true,
+#      title = "(a) Signal Magnitude vs. Phase Cycling Factor Δθ", legend=:none)
+#     scatter!(Δϕ_rads, abs.(ymat); label=label_raw, markersize=6, color) # raw noiseless simulated data
+#     scatter!(Δϕ_rads, abs.(signal_c0_fit_complex); label=label_fit, markershape=:x,markersize=4,
+#      markerstrokewidth=1, color) # fitted points
+#     plot!(Δϕ_plot, abs.(signal_c0_fit_complex_fine); label=label_fit_fine, color) # finer fit
 
-    # Vertical placement
-    y_header = 0.90
-    dy = min(0.065, 0.78 / max(nrows, 1))
+#     # phase (inst RF)
+#     pmisp_inst = plot( ; xaxis, widen = true, ylabel = "Signal Phase (rad)",legend=:none, title = "(b) Signal Phase vs. Phase Cycling Factor Δθ")
+#     scatter!(Δϕ_rads, angle.(ymat); label=label_raw, markersize=6, color)
+#     scatter!(Δϕ_rads, angle.(signal_c0_fit_complex); label=label_fit, markershape=:x,markersize=4, markerstrokewidth=1, color)
+#     plot!(Δϕ_plot, angle.(signal_c0_fit_complex_fine); label=label_fit_fine, color)
 
-    # Add headers
-    for j in 1:ncols
-        annotate!(
-            p4,
-            xcols[j],
-            y_header,
-            text(headers[j], fontsize_header, :black, haligns[j])
-        )
-    end
+#     # imaginary vs. real signal
+#     pmisri_inst = plot( ; xaxis, widen = true, ylabel = "Signal Phase (rad)",legend=:none, title = "(c) Imag(Signal) vs. Real(Signal)")
+#     scatter!(real.(ymat), imag.(ymat); label=label_raw, markersize=6, color)
+#     scatter!(real.(signal_c0_fit_complex), imag.(signal_c0_fit_complex); label=label_fit, markershape=:x,markersize=4, markerstrokewidth=1, color)
+#     plot!(real.(signal_c0_fit_complex_fine), imag.(signal_c0_fit_complex_fine); label=label_fit_fine, color)
 
-    # Add a separator line under the header
-    plot!(
-        p4,
-        [0.02, 0.98],
-        [y_header - 0.035, y_header - 0.035],
-        color = :black,
-        linewidth = 1,
-        label = false
-    )
+#     # ============================================================
+#     # Subplot 4: v1: table1 as aligned cell annotations
+#     # ============================================================
 
-    # Add table body
-    for i in 1:nrows
-        y = y_header - 0.06 - (i - 1) * dy
+#     function fmt_table_cell(x; sigdigits=3)
+#         if x isa AbstractFloat
+#             if isnan(x)
+#                 return "N/A"
+#             elseif isinf(x)
+#                 return string(x)
+#             elseif abs(x) >= 1e4 || 0 < abs(x) < 1e-3
+#                 return @sprintf("%.2e", x)
+#             else
+#                 return string(round(x; sigdigits=sigdigits))
+#             end
+#         elseif x isa Integer
+#             return string(x)
+#         else
+#             return string(x)
+#         end
+#     end
 
-        for j in 1:ncols
-            cell_text = fmt_table_cell(body[i, j]; sigdigits=3)
+#     # set table1
+#     table1 = tab2_0_all_inst_rf
 
-            annotate!(
-                p4,
-                xcols[j],
-                y,
-                text(cell_text, fontsize_body, :black, haligns[j])
-            )
-        end
-    end
+#     # Extract header/body from table1
+#     headers = replace.(string.(table1[1, :]), "_" => " ")
+#     body = table1[2:end, :]
 
-    # put all the plots on 1 grid
-#     p_combined = plot(
-#         pmism_inst,
-#         pmisp_inst,
-#         pmisri_inst,
+#     nrows = size(body, 1)
+#     ncols = size(table1, 2)
+
+#     # Blank plot that will hold the table
+#     p4 = plot(
+#         xlims = (0, 1),
+#         ylims = (0, 1),
+#         framestyle = :none,
+#         grid = false,
+#         legend = false,
+#         ticks = false,
+#         title = "(d) Parameter Estimates"
+#     )
+
+#     # Fixed column locations.
+#     # Adjust these if you want more/less spacing.
+#     # xcols = [0.03, 0.38, 0.58, 0.76, 0.94]
+#     xcols = [0.02, 0.32, 0.55, 0.76, 0.98]
+
+
+#     # Header alignment and body alignment
+#     # First column left-aligned, numeric columns right-aligned
+#     haligns = [:left, :right, :right, :right, :right]
+
+#     fontsize_header = 12
+#     fontsize_body = 12
+
+#     # Vertical placement
+#     y_header = 0.90
+#     dy = min(0.065, 0.78 / max(nrows, 1))
+
+#     # Add headers
+#     for j in 1:ncols
+#         annotate!(
+#             p4,
+#             xcols[j],
+#             y_header,
+#             text(headers[j], fontsize_header, :black, haligns[j])
+#         )
+#     end
+
+#     # Add a separator line under the header
+#     plot!(
 #         p4,
-#         layout = @layout([a b; c d]),
-#         size = (1200, 800),
-#         margin = 6mm,
-#         bottom_margin = 8mm,
-#         left_margin = 8mm,
-#         tickfontsize = 7,
-#         guidefontsize = 9,
-#         titlefontsize = 10
+#         [0.02, 0.98],
+#         [y_header - 0.035, y_header - 0.035],
+#         color = :black,
+#         linewidth = 1,
+#         label = false
+#     )
+
+#     # Add table body
+#     for i in 1:nrows
+#         y = y_header - 0.06 - (i - 1) * dy
+
+#         for j in 1:ncols
+#             cell_text = fmt_table_cell(body[i, j]; sigdigits=3)
+
+#             annotate!(
+#                 p4,
+#                 xcols[j],
+#                 y,
+#                 text(cell_text, fontsize_body, :black, haligns[j])
+#             )
+#         end
+#     end
+
+#     # put all the plots on 1 grid
+# #     p_combined = plot(
+# #         pmism_inst,
+# #         pmisp_inst,
+# #         pmisri_inst,
+# #         p4,
+# #         layout = @layout([a b; c d]),
+# #         size = (1200, 800),
+# #         margin = 6mm,
+# #         bottom_margin = 8mm,
+# #         left_margin = 8mm,
+# #         tickfontsize = 7,
+# #         guidefontsize = 9,
+# #         titlefontsize = 10
+# # )
+
+# p_combined = plot(
+#     pmism_inst,
+#     pmisp_inst,
+#     p4,
+#     layout = @layout([
+#         a b
+#         d{0.50h}
+#     ]),
+#     size = (1200, 800),
+#     margin = 6mm,
+#     bottom_margin = 8mm,
+#     left_margin = 8mm,
+#     tickfontsize = 7,
+#     guidefontsize = 9,
+#     titlefontsize = 10
 # )
 
-p_combined = plot(
-    pmism_inst,
-    pmisp_inst,
-    p4,
-    layout = @layout([
-        a b
-        d{0.50h}
-    ]),
-    size = (1200, 800),
-    margin = 6mm,
-    bottom_margin = 8mm,
-    left_margin = 8mm,
-    tickfontsize = 7,
-    guidefontsize = 9,
-    titlefontsize = 10
-)
-
-display(p_combined)
+# display(p_combined)
     
-end
+# end
 
-plot_bssfp_fit_fig2_v1()
+# plot_bssfp_fit_fig2_v1()
 
 
 tab2_0_all_inst_rf = [ # estimation results table
- :Param_Name :True_Param_Value :Empirical_Estimated_Mean :Empirical_SD :Empirical_CV :CRB_SD :CRB_CV;
- collect(keys(xt)) collect(xt) round2.([mean0 std0 cv0_emp crb0 cv0_crb]);
+ :Param_Name :True_Param_Value :Empirical_Mean :Empirical_SD :Empirical_CV :CRB_SD :CRB_CV;
+ collect(keys(xt)) collect(xt) round2.([mean0_inst_rf std0_inst_rf cv0_inst_rf_emp crb0_20 cv0_crb_inst_rf]);
 ]
-
-
+##
 function plot_bssfp_fit_fig2_v2()
 
-    color = [:green :red :blue]
+    color = [:green :red :purple :blue :black :magenta]
 
     # set some initializations
-    num_PCFs = length(Δϕ_rads)
-    num_flips = length(α_rads)
+    num_PCFs = length(Δϕ_rads_20)
+    num_flips = length(α_rads_20)
     xaxis = ("Phase Cycling Increment Δϕ (rad)", (-π, π), ((-1:1).*π, ["-π", "0", "π"]))
     Δϕ_plot = range(-1, 1, 61) * π # fine phase-cycling factors for plot
 
     # raw (simulated) inst RF data
-    ymat = reshape(yb_inst, num_PCFs, num_flips)
-    label_raw = reshape(map(x -> "$(x)° ideal noiseless simulated data", α_degs), 1, :)
+    ymat = reshape(mean2(y_noisy_inst_rf), num_PCFs, num_flips) # using noisy data
+    # label_raw = reshape(map(x -> "$(x)° ideal noiseless simulated data", α_degs), 1, :)
+    label_raw = reshape(map(x -> "$(x)° sim data", α_degs_20), 1, :)
 
     # (inst RF)
-    signal_c0_fit_complex = signal2_c0(xr0) #signal2_c0(xr0_all_inst_rf)
+    xfit = xr0_all_inst_rf[:,1]
+    signal_c0_fit_complex = signal2_c0_20(xfit) #signal2_c0(xr0_all_inst_rf)
     @show size(signal_c0_fit_complex)
-    signal_c0_fit_complex_fine = Base.Fix{1}(_bssfp0, xr0_init_truth).(Δϕ_plot, α_rads')
-    label_fit = reshape(map(x -> "$(x)° fit points", α_degs), 1, :)
-    label_fit_fine = reshape(map(x -> "$(x)° fit", α_degs), 1, :)
+    signal_c0_fit_complex_fine = Base.Fix{1}(_bssfp0, xfit).(Δϕ_plot, α_rads_20')
+    
+    # label_fit = reshape(map(x -> "$(x)° fitted points", α_degs_20), 1, :)
+    # label_fit_fine = reshape(map(x -> "$(x)° fit", α_degs_20), 1, :)
+    label_fit = reshape(
+    [i == 1 ? "fitted points" : false for i in eachindex(α_degs_20)],
+    1, :
+)
+
+label_fit_fine = reshape(
+    [i == 1 ? "fit" : false for i in eachindex(α_degs_20)],
+    1, :
+)
 
 
 
     # magnitude (inst RF)
     pmism_inst = plot( ; xaxis, ylabel = "Signal Magnitude",widen = true,
      title = "(a) Signal Magnitude vs. Phase Cycling Factor Δθ", legend=:none)
-    scatter!(Δϕ_rads, abs.(ymat); label=label_raw, markersize=6, color) # raw noiseless simulated data
-    scatter!(Δϕ_rads, abs.(signal_c0_fit_complex); label=label_fit, markershape=:x,markersize=4,
+    scatter!(Δϕ_rads_20, abs.(ymat); label=label_raw, markersize=6, color) # raw noiseless simulated data
+    scatter!(Δϕ_rads_20, abs.(signal_c0_fit_complex); label=label_fit, markershape=:x,markersize=4,
      markerstrokewidth=1, color) # fitted points
     plot!(Δϕ_plot, abs.(signal_c0_fit_complex_fine); label=label_fit_fine, color) # finer fit
 
     # phase (inst RF)
-    pmisp_inst = plot( ; xaxis, widen = true, ylabel = "Signal Phase (rad)",legend=:none, title = "(b) Signal Phase vs. Phase Cycling Factor Δθ")
-    scatter!(Δϕ_rads, angle.(ymat); label=label_raw, markersize=6, color)
-    scatter!(Δϕ_rads, angle.(signal_c0_fit_complex); label=label_fit, markershape=:x,markersize=4, markerstrokewidth=1, color)
+    pmisp_inst = plot( ; xaxis, widen = true, ylabel = "Signal Phase (rad)",legend=:bottomright, title = "(b) Signal Phase vs. Phase Cycling Factor Δθ")
+    scatter!(Δϕ_rads_20, angle.(ymat); label=label_raw, markersize=6, color)
+    scatter!(Δϕ_rads_20, angle.(signal_c0_fit_complex); label=label_fit, markershape=:x,markersize=4, markerstrokewidth=1, color)
     plot!(Δϕ_plot, angle.(signal_c0_fit_complex_fine); label=label_fit_fine, color)
 
     # imaginary vs. real signal
