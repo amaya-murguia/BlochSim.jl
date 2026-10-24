@@ -133,7 +133,7 @@ T2_f_ms = 10 # T2 for fast-relaxing, myelin water compartment
 T2_s_ms = 80 # T2 for slow-relaxing, non-myelin water compartment
 
 Δf_myelin_Hz = 5.0 # frequency shift of myelin water
-Δf_Hz = 0.0 # set off-resonance to zero for this plot
+Δf_Hz = 0.01 # set off-resonance to zero for this plot
 
 TR_ms, TE_ms = 8, 4; # scan parameters
 
@@ -508,7 +508,9 @@ collect(keys(xt)) collect(xt) round2.([crb0 crb1_sim crb1_fine])
 # ]
 
 ## data with sp effects, fit with inst rf, initialize with the truth
-xr0_init_truth_save_path = "/home/amurguia/Documents/mwi-data/ismrm_2027_vancouver_fits/data_sp_fit_inst_init_truth.jld"
+xr0_init_truth_save_path = "/home/amurguia/Documents/mwi-data/ismrm_2027_vancouver_fits/data_sp_fit_inst_init_truth_non_zero_off_res_take2.jld"
+xr0_init_truth_save_path = "/home/amurguia/Documents/mwi-data/ismrm_2027_vancouver_fits/data_sp_fit_inst_init_truth_deltaf_8Hz.jld"
+
 nrep = 10
 try
     xr0_init_truth_dict = load(xr0_init_truth_save_path)
@@ -516,7 +518,7 @@ try
 catch
     if !@isdefined(xr0_init_truth) || false
         @time xr0_init_truth, y_noisy0_init_truth = stack([do_fit_truth(signal2_ri0, i, yb, σ) for i in 1:nrep])
-        @save xr0_init_truth_save_path xr0_init_truth #y_noisy0_init_truth
+        @save xr0_init_truth_save_path xr0_init_truth y_noisy0_init_truth
     end;
 end
 mean0_init_truth = mean2(xr0_init_truth)
@@ -527,9 +529,6 @@ tab2_0_init_truth = [ # estimation results table
  :Param_Name :True_Value :Emp_Mean :Emp_SD :Emp_CV :CRB_SD :CRB_CV;
  collect(keys(xt)) collect(xt) round2.([mean0_init_truth std0_init_truth cv0_emp_init_truth crb0 cv0_crb_init_truth]);
 ]
-
-##
-
 
 
 
@@ -559,7 +558,8 @@ tab2_0_init_truth = [ # estimation results table
 # ]
 
 ## data with finite/sp effects, fit with finite/sp, initialize with the truth
-xr1_init_truth_save_path = "/home/amurguia/Documents/mwi-data/ismrm_2027_vancouver_fits/data_sp_fit_sp_init_truth_fix_10reps.jld"
+xr1_init_truth_save_path = "/home/amurguia/Documents/mwi-data/ismrm_2027_vancouver_fits/data_sp_fit_sp_init_truth_fix_10reps_non_zero_off_res.jld"
+xr1_init_truth_save_path = "/home/amurguia/Documents/mwi-data/ismrm_2027_vancouver_fits/data_sp_fit_sp_init_truth_fix_10reps_non_zero_off_res.jld"
 nrep = 10
 try
     xr1_init_truth_dict = load(xr1_init_truth_save_path)
@@ -578,7 +578,7 @@ catch
             xr1_init_truth = stack(xr1_list_init_truth)
             y_noisy1_init_truth = stack(y_noisy1_list_init_truth) # sane as non init truth version
         end
-        @save "/home/amurguia/Documents/mwi-data/ismrm_2027_vancouver_fits/data_sp_fit_sp_init_truth_fix_10reps.jld" xr1_init_truth y_noisy1_init_truth
+        @save "/home/amurguia/Documents/mwi-data/ismrm_2027_vancouver_fits/data_sp_fit_sp_init_truth_fix_10reps_non_zero_off_res.jld" xr1_init_truth y_noisy1_init_truth
     end;
 end
 
@@ -591,6 +591,8 @@ tab2_1_init_truth = [ # estimation results table, slice profile/finite RF
  :Param_Name :True_Value :Emp_Mean :Emp_SD :Emp_CV :CRB_SD :CRB_CV;
  collect(keys(xt)) collect(xt) round2.([mean1_init_truth std1_init_truth cv1_emp_init_truth crb1_sim cv1_crb_init_truth]);
 ]
+
+
 
 ## use data generated with inst rf (yb_inst)
 # this version does not have model mismatch
@@ -1401,3 +1403,5 @@ bar!(
 end
 
 pc_v2 = plot_bssfp_finite_rf_sp_data_fits_fig3_v2(args2_sim)
+
+
